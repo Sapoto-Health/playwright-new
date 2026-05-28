@@ -32,6 +32,7 @@ import { RawKeyboardImpl, RawMouseImpl, RawTouchscreenImpl } from './crInput';
 import { CRNetworkManager } from './crNetworkManager';
 import { CRPDF } from './crPdf';
 import { exceptionToError, releaseObject, stackTraceToLocation } from './crProtocolHelper';
+import { generateUtilityWorldName } from './crUtilityWorldName';
 import { platformToFontFamilies } from './defaultFontFamilies';
 import { TargetClosedError } from '../errors';
 import { isSessionClosedError } from '../protocolError';
@@ -89,7 +90,11 @@ export class CRPage implements PageDelegate {
     this._page = new Page(this, browserContext);
     // Create a unique utility world for this Playwright instance, just in case there
     // are multiple instances of Playwright connected to the same browser page.
-    this.utilityWorldName = `__playwright_utility_world_${this._page.guid}`;
+    // The name is an opaque 16-char hex token — Sapoto Tracer #1151 (Unit A) — so
+    // it does not leak framework-identifying substrings through
+    // `Runtime.executionContextCreated` events or `Error.stack` source labels.
+    // Generated once per CRPage so the name is stable for the lifetime of the page.
+    this.utilityWorldName = generateUtilityWorldName();
     this._networkManager = new CRNetworkManager(this._page, null);
     // Sync any browser context state to the network manager. This does not talk over CDP because
     // we have not connected any sessions to the network manager yet.
