@@ -30,6 +30,7 @@ import { removeFolders } from '@utils/fileUtils';
 import { gracefullyCloseSet } from '@utils/processLauncher';
 import { wsReceiver, wsSender } from '../../utilsBundle';
 import { validateBrowserContextOptions } from '../browserContext';
+import { parseCdpStealthFeatures } from '../cdpStealthFeatures';
 import { chromiumSwitches } from '../chromium/chromiumSwitches';
 import { shouldProxyLoopback, CRBrowser } from '../chromium/crBrowser';
 import { helper } from '../helper';
@@ -363,9 +364,13 @@ export class AndroidDevice extends SdkObject {
         protocolLogger: helper.debugProtocolLogger(),
         browserLogsCollector: new RecentLogsCollector(),
         originalLaunchOptions: {},
-        // Sapoto Tracer #1152 (Unit E): empty Set = no stealth applied.
-        // Unit G-stealth (#1153) will populate this from the CLI / channel.
-        cdpStealth: new Set(),
+        // Sapoto Tracer #1153 (Unit G-stealth): Android launchBrowser channel
+        // params do not include LaunchOptions (no cdpStealth wire field), so
+        // we route through parseCdpStealthFeatures(undefined) → empty Set.
+        // Consumers that want stealth on Android can extend
+        // AndroidDeviceLaunchBrowserParams later; the parser already accepts
+        // the wire shape if added.
+        cdpStealth: parseCdpStealthFeatures(undefined),
       };
       validateBrowserContextOptions(options, browserOptions);
 

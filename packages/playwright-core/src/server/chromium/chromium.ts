@@ -33,6 +33,7 @@ import { chromiumSwitches } from './chromiumSwitches';
 import { shouldProxyLoopback, CRBrowser } from './crBrowser';
 import { ConnectionEvents, CRConnection, kBrowserCloseMessageId } from './crConnection';
 import { validateBrowserContextOptions } from '../browserContext';
+import { parseCdpStealthFeatures } from '../cdpStealthFeatures';
 import { BrowserType, kNoXServerRunningError } from '../browserType';
 import { helper } from '../helper';
 import { registry } from '../registry';
@@ -155,9 +156,11 @@ export class Chromium extends BrowserType {
         tracesDir: options.tracesDir || artifactsDir,
         originalLaunchOptions: {},
         noDefaults: options.noDefaults,
-        // Sapoto Tracer #1152 (Unit E): empty Set = no stealth applied.
-        // Unit G-stealth (#1153) will populate this from the CLI / channel.
-        cdpStealth: new Set(),
+        // Sapoto Tracer #1153 (Unit G-stealth): rehydrate the wire-format
+        // string[] from connectOverCDPParams.cdpStealth (also surfaced on
+        // launch options via the LaunchOptions mixin) into a typed Set.
+        // Undefined / empty → empty Set → gates dormant.
+        cdpStealth: parseCdpStealthFeatures(options.cdpStealth),
       };
       validateBrowserContextOptions(persistent, browserOptions);
       const browser = await progress.race(CRBrowser.connect(this.attribution.playwright, transport, browserOptions));

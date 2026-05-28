@@ -53,6 +53,13 @@ BrowserType:
         noDefaults: boolean?
         artifactsDir: string?
         transport: binary?
+        # Sapoto Tracer #1153 (Unit G-stealth): wire format for the
+        # CDP-stealth feature Set. See LaunchOptions.cdpStealth (mixins.yml)
+        # for the full rationale. Channel-only; not exposed in docs or
+        # types.d.ts.
+        cdpStealth:
+          type: array?
+          items: string
       returns:
         browser: Browser
         defaultContext: BrowserContext?

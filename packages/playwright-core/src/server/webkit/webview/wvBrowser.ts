@@ -22,6 +22,7 @@ import { debugLogger, RecentLogsCollector } from '@utils/debugLogger';
 import { removeFolders } from '@utils/fileUtils';
 import { headersArrayToObject } from '@isomorphic/headers';
 import { Browser } from '../../browser';
+import { parseCdpStealthFeatures } from '../../cdpStealthFeatures';
 import { helper } from '../../helper';
 import { WebSocketTransport } from '../../transport';
 import { getUserAgent } from '../../userAgent';
@@ -93,10 +94,12 @@ export async function connectOverRDP(progress: Progress, parent: SdkObject, endp
       downloadsPath: artifactsDir,
       tracesDir: artifactsDir,
       originalLaunchOptions: {},
-      // Sapoto Tracer #1152 (Unit E): empty Set = no stealth applied.
-      // WebKit doesn't consume cdpStealth, but the field is required on
-      // BrowserOptions; populate to satisfy the type.
-      cdpStealth: new Set(),
+      // Sapoto Tracer #1153 (Unit G-stealth): WebKit doesn't consume
+      // cdpStealth, but the field is required on BrowserOptions. Route
+      // through the parser so the shape stays consistent across all 5
+      // assembly sites; the connect-over-RDP path doesn't surface a
+      // cdpStealth wire value, so this resolves to an empty Set.
+      cdpStealth: parseCdpStealthFeatures(undefined),
     });
     const shutdown = async () => {
       await created._closeAllTabs();

@@ -19,6 +19,7 @@ import path from 'path';
 import os from 'os';
 
 import dotenv from 'dotenv';
+import { parseCdpStealthCli } from '@isomorphic/cdpStealthCli';
 import { isSystemDirectory } from '@utils/fileUtils';
 import { playwright } from '../../inprocess';
 import { configFromIniFile } from './configIni';
@@ -42,6 +43,9 @@ export type CLIOptions = {
   caps?: string[];
   cdpEndpoint?: string;
   cdpHeader?: Record<string, string>;
+  // Sapoto Tracer #1153 (Unit G-stealth): wire-format string[] for the
+  // CDP-stealth feature Set. Channel-only; not exposed in public docs/types.
+  cdpStealth?: string[];
   cdpTimeout?: number;
   codegen?: 'typescript' | 'none';
   config?: string;
@@ -286,6 +290,14 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
   if (cliOptions.sandbox !== undefined)
     launchOptions.chromiumSandbox = cliOptions.sandbox;
 
+  // Sapoto Tracer #1153 (Unit G-stealth): the channel-only `cdpStealth` wire
+  // field. The public LaunchOptions in types.d.ts intentionally does NOT
+  // expose this field — it lives on the channel mixin and rides through
+  // `...options` spread in the client at runtime. We declare a narrow
+  // structural extension to attach the field without leaking `any` typing.
+  if (cliOptions.cdpStealth !== undefined)
+    (launchOptions as playwrightTypes.LaunchOptions & { cdpStealth?: string[] }).cdpStealth = cliOptions.cdpStealth;
+
   if (cliOptions.device && cliOptions.cdpEndpoint)
     throw new Error('Device emulation is not supported with cdpEndpoint.');
 
@@ -379,6 +391,11 @@ export function configFromEnv(env?: NodeJS.ProcessEnv): Config & { configFile?: 
   options.caps = commaSeparatedList(e.PLAYWRIGHT_MCP_CAPS);
   options.cdpEndpoint = envToString(e.PLAYWRIGHT_MCP_CDP_ENDPOINT);
   options.cdpHeader = headerParser(envToString(e.PLAYWRIGHT_MCP_CDP_HEADERS));
+  // Sapoto Tracer #1153 (Unit G-stealth): env-var counterpart of --cdp-stealth.
+  // Same parser as the CLI flag so both surfaces share the loud
+  // `network-skip` rejection.
+  if (e.PLAYWRIGHT_MCP_CDP_STEALTH !== undefined)
+    options.cdpStealth = parseCdpStealthCli(e.PLAYWRIGHT_MCP_CDP_STEALTH);
   options.cdpTimeout = numberParser(e.PLAYWRIGHT_MCP_CDP_TIMEOUT);
   options.config = envToString(e.PLAYWRIGHT_MCP_CONFIG);
   if (e.PLAYWRIGHT_MCP_CONSOLE_LEVEL)

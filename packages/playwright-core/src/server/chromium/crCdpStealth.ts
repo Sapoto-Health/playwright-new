@@ -60,13 +60,18 @@
  * No legacy `stealthMode: true` boolean alias. The Set is canonical.
  */
 
-export type CdpStealthFeature = 'runtime-cycle' | 'log-skip' | 'worker-runtime';
+// Sapoto Tracer #1153 (Unit G-stealth): the wire-format rehydrator now lives
+// at `server/cdpStealthFeatures.ts` so the 5 BrowserOptions assembly sites
+// (browserType.ts, chromium/chromium.ts, android/android.ts,
+// electron/electron.ts, webkit/webview/wvBrowser.ts) can call it without
+// crossing the server/chromium DEPS boundary. The chromium-side gates below
+// still consume the result; we re-export the type + helper here so existing
+// callers of `crCdpStealth` (and the cross-surface unit/integration tests)
+// keep a single import path.
+export type { CdpStealthFeature } from '../cdpStealthFeatures';
+export { CDP_STEALTH_FEATURES, parseCdpStealthFeatures } from '../cdpStealthFeatures';
 
-export const CDP_STEALTH_FEATURES: readonly CdpStealthFeature[] = [
-  'runtime-cycle',
-  'log-skip',
-  'worker-runtime',
-];
+import type { CdpStealthFeature } from '../cdpStealthFeatures';
 
 // Type-level assertion: BrowserOptions.cdpStealth's element type MUST stay
 // in sync with CdpStealthFeature. The literal is duplicated on BrowserOptions
@@ -82,35 +87,6 @@ type _CdpStealthFeatureSync =
     : never;
 const _assertCdpStealthFeatureSync: _CdpStealthFeatureSync = true;
 void _assertCdpStealthFeatureSync;  // satisfies eslint no-unused-vars
-
-const CDP_STEALTH_FEATURE_SET: ReadonlySet<string> = new Set<string>(CDP_STEALTH_FEATURES);
-
-/**
- * Parse a wire-format `string[]` into a typed `Set<CdpStealthFeature>`.
- *
- * Unknown values throw a loud, descriptive error — in particular,
- * `'network-skip'` is rejected by name (see module header for the Codex P1
- * lesson). Pass an empty array to get the default empty Set.
- */
-export function parseCdpStealthFeatures(features: readonly string[]): Set<CdpStealthFeature> {
-  const set = new Set<CdpStealthFeature>();
-  for (const raw of features) {
-    if (raw === 'network-skip') {
-      throw new Error(
-          `Invalid cdpStealth feature: "network-skip" is rejected by design. ` +
-          `It was removed during Codex P1 review on the previous-generation fork because ` +
-          `it silently broke page.on('request') listeners and every fetch interception path. ` +
-          `Allowed values: ${CDP_STEALTH_FEATURES.map(v => JSON.stringify(v)).join(', ')}.`);
-    }
-    if (!CDP_STEALTH_FEATURE_SET.has(raw)) {
-      throw new Error(
-          `Invalid cdpStealth feature: ${JSON.stringify(raw)}. ` +
-          `Allowed values: ${CDP_STEALTH_FEATURES.map(v => JSON.stringify(v)).join(', ')}.`);
-    }
-    set.add(raw as CdpStealthFeature);
-  }
-  return set;
-}
 
 // ----------------------------------------------------------------------
 // Per-feature pure-decision gates

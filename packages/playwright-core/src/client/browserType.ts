@@ -170,6 +170,11 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
       isLocal: params.isLocal,
       noDefaults: params.noDefaults,
       artifactsDir: params.artifactsDir,
+      // Sapoto Tracer #1153 (Unit G-stealth): cdpStealth is channel-only —
+      // not on the public ConnectOverCDPOptions type but accepted on the
+      // wire via the channel YAML. Forward it explicitly through the same
+      // narrow structural extension we use in tests / MCP wiring.
+      cdpStealth: (params as api.ConnectOverCDPOptions & { cdpStealth?: string[] }).cdpStealth,
     });
     return await this._browserFromConnectResult(result);
   }

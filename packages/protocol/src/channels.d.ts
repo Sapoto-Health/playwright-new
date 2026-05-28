@@ -1848,6 +1848,7 @@ export type BrowserTypeLaunchParams = {
   chromiumSandbox?: boolean,
   firefoxUserPrefs?: any,
   cdpPort?: number,
+  cdpStealth?: string[],
   slowMo?: number,
 };
 export type BrowserTypeLaunchOptions = {
@@ -1873,6 +1874,7 @@ export type BrowserTypeLaunchOptions = {
   chromiumSandbox?: boolean,
   firefoxUserPrefs?: any,
   cdpPort?: number,
+  cdpStealth?: string[],
   slowMo?: number,
 };
 export type BrowserTypeLaunchResult = {
@@ -1902,6 +1904,7 @@ export type BrowserTypeLaunchPersistentContextParams = {
   chromiumSandbox?: boolean,
   firefoxUserPrefs?: any,
   cdpPort?: number,
+  cdpStealth?: string[],
   noDefaultViewport?: boolean,
   viewport?: {
     width: number,
@@ -1990,6 +1993,7 @@ export type BrowserTypeLaunchPersistentContextOptions = {
   chromiumSandbox?: boolean,
   firefoxUserPrefs?: any,
   cdpPort?: number,
+  cdpStealth?: string[],
   noDefaultViewport?: boolean,
   viewport?: {
     width: number,
@@ -2067,6 +2071,7 @@ export type BrowserTypeConnectOverCDPParams = {
   noDefaults?: boolean,
   artifactsDir?: string,
   transport?: Binary,
+  cdpStealth?: string[],
 };
 export type BrowserTypeConnectOverCDPOptions = {
   endpointURL?: string,
@@ -2076,6 +2081,7 @@ export type BrowserTypeConnectOverCDPOptions = {
   noDefaults?: boolean,
   artifactsDir?: string,
   transport?: Binary,
+  cdpStealth?: string[],
 };
 export type BrowserTypeConnectOverCDPResult = {
   browser: BrowserChannel,

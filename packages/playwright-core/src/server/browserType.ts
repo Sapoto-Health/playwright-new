@@ -26,6 +26,7 @@ import { existsAsync } from '@utils/fileUtils';
 import { envArrayToObject, launchProcess } from '@utils/processLauncher';
 import { RecentLogsCollector } from '@utils/debugLogger';
 import { normalizeProxySettings, validateBrowserContextOptions } from './browserContext';
+import { parseCdpStealthFeatures } from './cdpStealthFeatures';
 import { helper } from './helper';
 import { SdkObject } from './instrumentation';
 import { PipeTransport } from './pipeTransport';
@@ -131,9 +132,11 @@ export abstract class BrowserType extends SdkObject {
         wsEndpoint,
         originalLaunchOptions: options,
         userDataDir: persistent ? userDataDir : undefined,
-        // Sapoto Tracer #1152 (Unit E): empty Set = no stealth applied.
-        // Unit G-stealth (#1153) will populate this from the CLI / channel.
-        cdpStealth: new Set(),
+        // Sapoto Tracer #1153 (Unit G-stealth): rehydrate the wire-format
+        // string[] from launch options into a typed Set<CdpStealthFeature>.
+        // An undefined / empty channel field returns an empty Set so the
+        // chromium gates stay dormant (zero-regression from Unit E behavior).
+        cdpStealth: parseCdpStealthFeatures(options.cdpStealth),
       };
       if (persistent)
         validateBrowserContextOptions(persistent, browserOptions);
