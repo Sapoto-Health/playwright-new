@@ -26,6 +26,7 @@ import { envArrayToObject, launchProcess } from '@utils/processLauncher';
 import { ManualPromise } from '@isomorphic/manualPromise';
 import { libPath } from '../../package';
 import { validateBrowserContextOptions } from '../browserContext';
+import { parseCdpStealthFeatures } from '../cdpStealthFeatures';
 import { CRBrowser } from '../chromium/crBrowser';
 import { CRConnection } from '../chromium/crConnection';
 import { createHandle, CRExecutionContext } from '../chromium/crExecutionContext';
@@ -285,6 +286,11 @@ export class Electron extends SdkObject {
         downloadsPath: artifactsDir,
         tracesDir: options.tracesDir || artifactsDir,
         originalLaunchOptions: {},
+        // Sapoto Tracer #1153 (Unit G-stealth): Electron launch channel
+        // params do not surface LaunchOptions's cdpStealth field; route
+        // through the parser with undefined → empty Set so the BrowserOptions
+        // shape stays consistent across all 5 assembly sites.
+        cdpStealth: parseCdpStealthFeatures(undefined),
       };
       validateBrowserContextOptions(contextOptions, browserOptions);
       const browser = await progress.race(CRBrowser.connect(this.attribution.playwright, chromeTransport, browserOptions));

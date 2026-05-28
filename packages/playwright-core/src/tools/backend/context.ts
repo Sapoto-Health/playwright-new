@@ -26,6 +26,8 @@ import { isPathInside, isSystemDirectory, isWritable } from '@utils/fileUtils';
 import { playwright } from '../../inprocess';
 
 import { Tab } from './tab';
+import { buildCaptureBridgeInitScript, isBackgroundTargetUrl } from './captureBridgeInitScript';
+import { isInternalUrl } from './opsFilters';
 
 import type * as playwrightTypes from '../../..';
 import type { SessionLog } from './sessionLog';
@@ -57,12 +59,52 @@ export type ContextConfig = {
     action?: number;
     navigation?: number;
     expect?: number;
+    // Sapoto Tracer #1155 (Unit G-ops): per-tool download wait budget. See
+    // `Tab.waitForCompletion`. When undefined, downloads are NOT awaited
+    // (upstream-default behaviour).
+    download?: number;
   };
   browser?: {
     initScript?: string[];
     initPage?: string[];
   };
   skillMode?: boolean;
+  /**
+   * Sapoto Tracer #1154 (Unit I): when true, install the capture-bridge
+   * IIFE (C3 deferred print + C4 sync print fast-path mirror + C5
+   * window.open shim) on every page via `addInitScript`, and exclude
+   * URLs containing the `__sapoto_bg=V1:` fragment from `_tabs` so they
+   * don't surface to the agent. Driven by the CLI flag `--capture-bridge`.
+   */
+  captureBridge?: boolean;
+
+  /**
+   * Sapoto Tracer #1155 (Unit G-ops): when true, exclude embedder-internal
+   * pages (`file://`, `data:`, `chrome-extension://`, hostname `localhost`)
+   * from `_tabs` and the page-event stream. Same persistent-hide pattern
+   * as `captureBridge` — flagged at page creation, pinned via a WeakSet so
+   * a subsequent `Page.navigate(realUrl)` cannot resurface the tab. Driven
+   * by `--filter-internal-urls` / PLAYWRIGHT_MCP_FILTER_INTERNAL_URLS.
+   */
+  filterInternalUrls?: boolean;
+
+  /**
+   * Sapoto Tracer #1155 (Unit G-ops): when true, skip Playwright's
+   * `page.on('download')` listener entirely so the embedder's capture
+   * stack owns downloads exclusively. `Tab._waitForPendingDownloads`
+   * MUST early-return when this is true (no savePromise will ever exist
+   * → waiting on a never-created promise would deadlock the tool
+   * response). Driven by `--disable-downloads` /
+   * PLAYWRIGHT_MCP_DISABLE_DOWNLOADS.
+   */
+  disableDownloads?: boolean;
+
+  /**
+   * Sapoto Tracer #1155 (Unit G-ops): allowlist of MCP tool names to
+   * advertise via `tools/list`. Applied in `filteredTools` after the
+   * capability gate. Channel-only.
+   */
+  allowedTools?: string[];
 };
 
 type ContextOptions = {
@@ -99,6 +141,14 @@ export class Context {
   private _tabs: Tab[] = [];
   private _currentTab: Tab | undefined;
   private _routes: RouteEntry[] = [];
+  // Sapoto Tracer #1154 (Unit I): pages whose URL at creation matched the
+  // `__sapoto_bg=V1:` background-target marker are permanently hidden from
+  // `browser_tabs`, regardless of any subsequent navigation that overwrites
+  // the marker URL. The production flow does `Target.createTarget` with the
+  // marker URL followed by `Page.navigate(realUrl)`, so a "live" URL check at
+  // tab-list time would let the page resurface once the orchestrator
+  // navigates it. WeakSet keeps the flag pinned to the page identity.
+  private _hiddenBackgroundPages: WeakSet<playwrightTypes.Page> = new WeakSet();
   private _video: {
     params: VideoParams;
     fileNames: string[];
@@ -244,6 +294,39 @@ export class Context {
   }
 
   private _onPageCreated(page: playwrightTypes.Page) {
+    // Sapoto Tracer #1154 (Unit I): hide background-target capture tabs from
+    // the agent-visible list. ADF's backgroundOpenBridge spawns a hidden CDP
+    // target whose URL fragment contains `__sapoto_bg=V1:…`; that target is
+    // an orchestrator implementation detail and should NOT surface in
+    // `browser_tabs`. We still wire video capture / start-up listeners so
+    // the orchestrator can drive the page normally over its own session.
+    //
+    // The URL at page creation can be empty / `about:blank` before the
+    // navigation lands, so we attach a one-shot framenavigated listener that
+    // either confirms the marker (keep hidden) or surfaces the tab on first
+    // real navigation (push into `_tabs` retroactively).
+    const initialUrl = page.url();
+    if (this.config.captureBridge && isBackgroundTargetUrl(initialUrl)) {
+      // Pin the hidden status to the page identity — surviving any
+      // `Page.navigate(realUrl)` that overwrites the marker URL after
+      // creation. See `_hiddenBackgroundPages` field comment.
+      this._hiddenBackgroundPages.add(page);
+      this._startPageVideo(page).catch(() => {});
+      return;
+    }
+    // Sapoto Tracer #1155 (Unit G-ops): when `--filter-internal-urls` is
+    // set, also hide embedder-internal tabs (file://, data:,
+    // chrome-extension://, localhost) using the SAME persistent-hide
+    // pattern Unit I introduced. A WeakSet pins the hidden status to the
+    // page identity, so a subsequent navigation to a real URL cannot
+    // resurface the tab — symmetric with the background-target handling
+    // above, and validated by `filter-internal-urls.spec.ts`'s
+    // "navigate-survives" test.
+    if (this.config.filterInternalUrls && isInternalUrl(initialUrl)) {
+      this._hiddenBackgroundPages.add(page);
+      this._startPageVideo(page).catch(() => {});
+      return;
+    }
     const tab = new Tab(this, page, tab => this._onPageClosed(tab));
     this._tabs.push(tab);
     if (!this._currentTab)
@@ -341,6 +424,16 @@ export class Context {
     }
     for (const initScript of this.config.browser?.initScript || [])
       this._disposables.push(await browserContext.addInitScript({ path: path.resolve(this.options.cwd, initScript) }));
+
+    // Sapoto Tracer #1154 (Unit I): install the capture-bridge IIFE on every
+    // new page when `--capture-bridge` is set. Inert form when disabled
+    // (returns an empty IIFE so addInitScript is a no-op rather than a
+    // page-detectable absence of the install).
+    if (this.config.captureBridge) {
+      this._disposables.push(await browserContext.addInitScript({
+        content: buildCaptureBridgeInitScript({ captureBridge: true }),
+      }));
+    }
 
     for (const page of browserContext.pages())
       this._onPageCreated(page);

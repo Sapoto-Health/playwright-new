@@ -172,3 +172,21 @@ Every stealth-related test should:
 - **Asserting patched value equals expected literal.** This proves the patch ran, not that the result is undetectable.
 - **Testing only the main frame.** Cross-surface inconsistency is a primary detection vector.
 - **Relying on third-party scanner scores.** CreepJS, BrowserScan, and similar tools test a subset of signals. Passing them does not prove portal-level stealth. They are useful as smoke tests, not acceptance criteria.
+
+---
+
+## 8. Architectural constraints
+
+### Session topology constraint
+
+Console-marker bridges must run on their own CDP client. Listening on Playwright's `CRSession` would be suppressed by `runtime-cycle` (Tracer #1152) — once Playwright's session issues `Runtime.disable`, any `Runtime.consoleAPICalled` listener attached to that session stops receiving events. ADF's `backgroundOpenBridge` therefore listens on its own raw-CDP WebSocket session — this is structural, not a stylistic choice. Refactoring the marker listener onto Playwright's session would silently break the bridge whenever `runtime-cycle` is enabled.
+
+The same constraint applies to any future "I need to watch console events" code that lives on the Playwright side: open a separate CDP client. Do not piggy-back on the session that the stealth gates are actively darkening.
+
+---
+
+## 9. Future directions
+
+The `runtime-cycle` mitigation is still observable. After the rapid `Runtime.enable → Runtime.disable` chain lands, page scripts can install a `Proxy` on `__proto__` of a fingerprint-grade object and watch for trap invocations during subsequent CDP-side serialization; the cycle leaves traces in V8's hidden-class accounting that a determined probe can read out of timing variance. We accept this residual risk for now because every observed real-world portal stops at the cruder `console.debug` Proxy trap that `runtime-cycle` already defeats.
+
+The strategically superior alternative is the `rebrowser`-style design: `Runtime.addBinding` + manual execution-context discovery via `Page.frameAttached` / `DOM.documentUpdated`, with the Runtime domain NEVER enabled at all. This eliminates the cycle traces entirely (you can't fingerprint a domain that was never enabled). It is a larger refactor — Playwright's frame-tree and execution-context tracking is coupled to `Runtime.executionContextCreated` events in many places — and is out of scope for the current fork. File a tracking issue if `runtime-cycle` ever trips a portal in production; that's the signal to invest in the rebrowser-style migration.

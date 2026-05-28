@@ -15,6 +15,7 @@
  */
 
 import { Option as ProgramOption } from 'commander';
+import { parseCdpStealthCli } from '@isomorphic/cdpStealthCli';
 import * as mcpServer from '../utils/mcp/server';
 import { commaSeparatedList, dotenvFileLoader, enumParser, headerParser, numberParser, resolutionParser, resolveCLIConfigForMCP, semicolonSeparatedList } from './config';
 import { setupExitWatchdog } from './watchdog';
@@ -34,20 +35,44 @@ export function decorateMCPCommand(command: Command) {
   command
       .option('--allowed-hosts <hosts...>', 'comma-separated list of hosts this server is allowed to serve from. Defaults to the host the server is bound to. Pass \'*\' to disable the host check.', commaSeparatedList)
       .option('--allowed-origins <origins>', 'semicolon-separated list of TRUSTED origins to allow the browser to request. Default is to allow all.\nImportant: *does not* serve as a security boundary and *does not* affect redirects. ', semicolonSeparatedList)
+      // Sapoto Tracer #1155 (Unit G-ops) — comma-separated allowlist of MCP
+      // tool names. When non-empty, `tools/list` advertises only the
+      // intersection of (capability-selected tools) ∩ (this allowlist).
+      // Channel-only — not exposed in docs/api or the public types.d.ts.
+      .option('--allowed-tools <tools>', 'comma-separated list of tool names to expose. If specified, only these tools are visible via tools/list.', commaSeparatedList)
       .option('--allow-unrestricted-file-access', 'allow access to files outside of the workspace roots. Also allows unrestricted access to file:// URLs. By default access to file system is restricted to workspace root directories (or cwd if no roots are configured) only, and navigation to file:// URLs is blocked.')
       .option('--blocked-origins <origins>', 'semicolon-separated list of origins to block the browser from requesting. Blocklist is evaluated before allowlist. If used without the allowlist, requests not matching the blocklist are still allowed.\nImportant: *does not* serve as a security boundary and *does not* affect redirects.', semicolonSeparatedList)
       .option('--block-service-workers', 'block service workers')
       .option('--browser <browser>', 'browser or chrome channel to use, possible values: chrome, firefox, webkit, msedge.')
       .option('--caps <caps>', 'comma-separated list of additional capabilities to enable, possible values: vision, pdf, devtools.', commaSeparatedList)
+      // Sapoto Tracer #1154 (Unit I) — install the capture-bridge IIFE on
+      // every page (C3 deferred print + C4 sync print fast-path mirror +
+      // C5 window.open shim) and exclude `__sapoto_bg=V1:` background-target
+      // URLs from `browser_tabs`. Channel-only — not exposed in docs/api or
+      // the public types.d.ts.
+      .option('--capture-bridge', 'install the Sapoto capture-bridge IIFE on every page and hide background-target capture tabs from browser_tabs.')
       .option('--cdp-endpoint <endpoint>', 'CDP endpoint to connect to.')
       .option('--cdp-header <headers...>', 'CDP headers to send with the connect request, multiple can be specified.', headerParser)
+      // Sapoto Tracer #1153 (Unit G-stealth) — decomposed CDP-stealth flag
+      // surface. See packages/isomorphic/cdpStealthCli.ts for the per-feature
+      // rationale and the rejection of `network-skip`. Channel-only — the
+      // flag is not exposed via docs/src/api/ or the public types.d.ts.
+      .option('--cdp-stealth <list>', 'comma-separated list of CDP-stealth features to enable in the chromium driver. Allowed values: "runtime-cycle", "log-skip", "worker-runtime", "all" (= all three), or empty (= none). Default: empty.', parseCdpStealthCli)
       .option('--cdp-timeout <timeout>', 'timeout in milliseconds for connecting to CDP endpoint, defaults to 30000ms', numberParser)
       .option('--codegen <lang>', 'specify the language to use for code generation, possible values: "typescript", "none". Default is "typescript".', enumParser.bind(null, '--codegen', ['none', 'typescript']))
       .option('--config <path>', 'path to the configuration file.')
       .option('--console-level <level>', 'level of console messages to return: "error", "warning", "info", "debug". Each level includes the messages of more severe levels.', enumParser.bind(null, '--console-level', ['error', 'warning', 'info', 'debug']))
       .option('--device <device>', 'device to emulate, for example: "iPhone 15"')
+      // Sapoto Tracer #1155 (Unit G-ops) — skip Playwright's
+      // page.on('download') listener entirely; the embedder's capture
+      // stack owns downloads exclusively. Channel-only.
+      .option('--disable-downloads', 'disable Playwright download handling (the embedder\'s capture stack owns downloads).')
       .option('--executable-path <path>', 'path to the browser executable.')
       .option('--extension', 'Connect to a running browser instance (Edge/Chrome only). Requires the "Playwright Extension" to be installed.')
+      // Sapoto Tracer #1155 (Unit G-ops) — hide embedder-internal pages
+      // (file://, data:, chrome-extension://, hostname `localhost`) from
+      // `browser_tabs`. Channel-only.
+      .option('--filter-internal-urls', 'filter embedder-internal pages (file://, data:, chrome-extension://, localhost) from the browser_tabs listing.')
       .option('--endpoint <endpoint>', 'Bound browser endpoint to connect to.')
       .option('--grant-permissions <permissions...>', 'List of permissions to grant to the browser context, for example "geolocation", "clipboard-read", "clipboard-write".', commaSeparatedList)
       .option('--headless', 'run browser in headless mode, headed by default')
@@ -72,6 +97,9 @@ export function decorateMCPCommand(command: Command) {
       .option('--storage-state <path>', 'path to the storage state file for isolated sessions.')
       .option('--test-id-attribute <attribute>', 'specify the attribute to use for test ids, defaults to "data-testid"')
       .option('--timeout-action <timeout>', 'specify action timeout in milliseconds, defaults to 5000ms', numberParser)
+      // Sapoto Tracer #1155 (Unit G-ops) — per-tool budget for blocking
+      // tool responses on in-flight downloads. Channel-only.
+      .option('--timeout-download <timeout>', 'specify the maximum time in milliseconds tool responses block on in-flight downloads. Unset = no waiting.', numberParser)
       .option('--timeout-navigation <timeout>', 'specify navigation timeout in milliseconds, defaults to 60000ms', numberParser)
       .option('--user-agent <ua string>', 'specify user agent string')
       .option('--user-data-dir <path>', 'path to the user data directory. If not specified, a temporary directory will be created.')

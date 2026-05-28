@@ -39,6 +39,7 @@ import tracing from './tracing';
 import verify from './verify';
 import video from './video';
 import wait from './wait';
+import waitForPmAutofill from './waitForPmAutofill';
 import webstorage from './webstorage';
 
 import type { Tool } from './tool';
@@ -69,11 +70,27 @@ export const browserTools: Tool<any>[] = [
   ...verify,
   ...video,
   ...wait,
+  ...waitForPmAutofill,
   ...webstorage,
 ];
 
-export function filteredTools(config: Pick<ContextConfig, 'capabilities'>) {
-  return browserTools.filter(tool => tool.capability.startsWith('core') || config.capabilities?.includes(tool.capability)).filter(tool => !tool.skillOnly).map(tool => ({
+export function filteredTools(config: Pick<ContextConfig, 'capabilities' | 'allowedTools'>) {
+  let tools = browserTools
+      .filter(tool => tool.capability.startsWith('core') || config.capabilities?.includes(tool.capability))
+      .filter(tool => !tool.skillOnly);
+
+  // Sapoto Tracer #1155 (Unit G-ops) — `--allowed-tools` further restricts
+  // the visible set to a hand-picked allowlist. Unset / empty means "no
+  // filter, advertise every tool the capability set selected" (upstream-
+  // default behaviour preserved). Applied AFTER capability filtering so
+  // an allowlist can never re-introduce a tool the user disabled via
+  // capability gates.
+  if (config.allowedTools && config.allowedTools.length > 0) {
+    const allow = new Set(config.allowedTools);
+    tools = tools.filter(tool => allow.has(tool.schema.name));
+  }
+
+  return tools.map(tool => ({
     ...tool,
     schema: {
       ...tool.schema,

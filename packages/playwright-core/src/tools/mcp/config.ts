@@ -19,6 +19,7 @@ import path from 'path';
 import os from 'os';
 
 import dotenv from 'dotenv';
+import { parseCdpStealthCli } from '@isomorphic/cdpStealthCli';
 import { isSystemDirectory } from '@utils/fileUtils';
 import { playwright } from '../../inprocess';
 import { configFromIniFile } from './configIni';
@@ -40,8 +41,15 @@ export type CLIOptions = {
   blockServiceWorkers?: boolean;
   browser?: string;
   caps?: string[];
+  // Sapoto Tracer #1154 (Unit I): install the capture-bridge IIFE on every
+  // page and exclude `__sapoto_bg=V1:` background-target URLs from
+  // `browser_tabs`. Channel-only; not exposed in public docs/types.
+  captureBridge?: boolean;
   cdpEndpoint?: string;
   cdpHeader?: Record<string, string>;
+  // Sapoto Tracer #1153 (Unit G-stealth): wire-format string[] for the
+  // CDP-stealth feature Set. Channel-only; not exposed in public docs/types.
+  cdpStealth?: string[];
   cdpTimeout?: number;
   codegen?: 'typescript' | 'none';
   config?: string;
@@ -72,9 +80,18 @@ export type CLIOptions = {
   testIdAttribute?: string;
   timeoutAction?: number;
   timeoutNavigation?: number;
+  // Sapoto Tracer #1155 (Unit G-ops): block tool responses on in-flight
+  // downloads for up to this many milliseconds. See ContextConfig.timeouts.download.
+  timeoutDownload?: number;
   userAgent?: string;
   userDataDir?: string;
   viewportSize?: ViewportSize;
+  // Sapoto Tracer #1155 (Unit G-ops): see Config.filterInternalUrls.
+  filterInternalUrls?: boolean;
+  // Sapoto Tracer #1155 (Unit G-ops): see Config.disableDownloads.
+  disableDownloads?: boolean;
+  // Sapoto Tracer #1155 (Unit G-ops): see Config.allowedTools.
+  allowedTools?: string[];
 };
 
 const defaultConfig: MergedConfig = {
@@ -286,6 +303,14 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
   if (cliOptions.sandbox !== undefined)
     launchOptions.chromiumSandbox = cliOptions.sandbox;
 
+  // Sapoto Tracer #1153 (Unit G-stealth): the channel-only `cdpStealth` wire
+  // field. The public LaunchOptions in types.d.ts intentionally does NOT
+  // expose this field — it lives on the channel mixin and rides through
+  // `...options` spread in the client at runtime. We declare a narrow
+  // structural extension to attach the field without leaking `any` typing.
+  if (cliOptions.cdpStealth !== undefined)
+    (launchOptions as playwrightTypes.LaunchOptions & { cdpStealth?: string[] }).cdpStealth = cliOptions.cdpStealth;
+
   if (cliOptions.device && cliOptions.cdpEndpoint)
     throw new Error('Device emulation is not supported with cdpEndpoint.');
 
@@ -350,6 +375,11 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
       blockedOrigins: cliOptions.blockedOrigins,
     },
     allowUnrestrictedFileAccess: cliOptions.allowUnrestrictedFileAccess,
+    captureBridge: cliOptions.captureBridge,
+    // Sapoto Tracer #1155 (Unit G-ops): boolean / list channel-only options.
+    filterInternalUrls: cliOptions.filterInternalUrls,
+    disableDownloads: cliOptions.disableDownloads,
+    allowedTools: cliOptions.allowedTools,
     codegen: cliOptions.codegen,
     saveSession: cliOptions.saveSession,
     secrets: cliOptions.secrets,
@@ -361,6 +391,8 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
     timeouts: {
       action: cliOptions.timeoutAction,
       navigation: cliOptions.timeoutNavigation,
+      // Sapoto Tracer #1155 (Unit G-ops): per-tool download wait budget.
+      download: cliOptions.timeoutDownload,
     },
   };
 
@@ -377,8 +409,15 @@ export function configFromEnv(env?: NodeJS.ProcessEnv): Config & { configFile?: 
   options.blockServiceWorkers = envToBoolean(e.PLAYWRIGHT_MCP_BLOCK_SERVICE_WORKERS);
   options.browser = envToString(e.PLAYWRIGHT_MCP_BROWSER);
   options.caps = commaSeparatedList(e.PLAYWRIGHT_MCP_CAPS);
+  // Sapoto Tracer #1154 (Unit I): env-var counterpart of --capture-bridge.
+  options.captureBridge = envToBoolean(e.PLAYWRIGHT_MCP_CAPTURE_BRIDGE);
   options.cdpEndpoint = envToString(e.PLAYWRIGHT_MCP_CDP_ENDPOINT);
   options.cdpHeader = headerParser(envToString(e.PLAYWRIGHT_MCP_CDP_HEADERS));
+  // Sapoto Tracer #1153 (Unit G-stealth): env-var counterpart of --cdp-stealth.
+  // Same parser as the CLI flag so both surfaces share the loud
+  // `network-skip` rejection.
+  if (e.PLAYWRIGHT_MCP_CDP_STEALTH !== undefined)
+    options.cdpStealth = parseCdpStealthCli(e.PLAYWRIGHT_MCP_CDP_STEALTH);
   options.cdpTimeout = numberParser(e.PLAYWRIGHT_MCP_CDP_TIMEOUT);
   options.config = envToString(e.PLAYWRIGHT_MCP_CONFIG);
   if (e.PLAYWRIGHT_MCP_CONSOLE_LEVEL)
@@ -410,6 +449,13 @@ export function configFromEnv(env?: NodeJS.ProcessEnv): Config & { configFile?: 
   options.testIdAttribute = envToString(e.PLAYWRIGHT_MCP_TEST_ID_ATTRIBUTE);
   options.timeoutAction = numberParser(e.PLAYWRIGHT_MCP_TIMEOUT_ACTION);
   options.timeoutNavigation = numberParser(e.PLAYWRIGHT_MCP_TIMEOUT_NAVIGATION);
+  // Sapoto Tracer #1155 (Unit G-ops): env-var counterparts of the four
+  // ops CLI flags. Same parsers as `--timeout-*` / boolean flags for
+  // consistency with the CLI surface.
+  options.timeoutDownload = numberParser(e.PLAYWRIGHT_MCP_TIMEOUT_DOWNLOAD);
+  options.filterInternalUrls = envToBoolean(e.PLAYWRIGHT_MCP_FILTER_INTERNAL_URLS);
+  options.disableDownloads = envToBoolean(e.PLAYWRIGHT_MCP_DISABLE_DOWNLOADS);
+  options.allowedTools = commaSeparatedList(e.PLAYWRIGHT_MCP_ALLOWED_TOOLS);
   options.userAgent = envToString(e.PLAYWRIGHT_MCP_USER_AGENT);
   options.userDataDir = envToString(e.PLAYWRIGHT_MCP_USER_DATA_DIR);
   options.viewportSize = resolutionParser('--viewport-size', e.PLAYWRIGHT_MCP_VIEWPORT_SIZE);

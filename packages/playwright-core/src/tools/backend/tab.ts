@@ -43,6 +43,12 @@ type Download = {
   download: playwright.Download;
   finished: boolean;
   outputFile: string;
+  // Sapoto Tracer #1155 (Unit G-ops): the promise returned by
+  // `download.saveAs()`. `waitForCompletion` awaits this so tool responses
+  // don't return mid-download. Only populated when the `download` listener
+  // actually fires (i.e. when `disableDownloads` is NOT set); see
+  // `_waitForPendingDownloads`'s early-return invariant.
+  savePromise?: Promise<void>;
 };
 
 type ConsoleLogEntry = {
@@ -127,10 +133,18 @@ export class Tab extends EventEmitter<TabEventsInterface> {
         });
       }),
       eventsHelper.addEventListener(p, 'dialog', dialog => this._dialogShown(dialog)),
-      eventsHelper.addEventListener(p, 'download', download => {
-        void this._downloadStarted(download);
-      }),
     ];
+    // Sapoto Tracer #1155 (Unit G-ops): when `--disable-downloads` is set
+    // the embedder's capture stack owns downloads exclusively. Skip
+    // Playwright's `download` listener entirely so we never call
+    // `download.saveAs()` and never create a `savePromise` — which is the
+    // load-bearing invariant for the deadlock-avoidance early-return in
+    // `_waitForPendingDownloads`.
+    if (!context.config.disableDownloads) {
+      this._disposables.push(eventsHelper.addEventListener(p, 'download', download => {
+        void this._downloadStarted(download);
+      }));
+    }
     // eslint-disable-next-line no-restricted-syntax
     (page as any)[tabSymbol] = this;
     const wallTime = Date.now();
@@ -204,16 +218,24 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private async _downloadStarted(download: playwright.Download) {
     // Do not trust web names.
     const outputFile = await this.context.outputFile({ suggestedFilename: sanitizeForFilePath(download.suggestedFilename()), prefix: 'download', ext: 'bin' }, { origin: 'code' });
-    const entry = {
+    const entry: Download = {
       download,
       finished: false,
       outputFile,
     };
     this._downloads.push(entry);
     this._addLogEntry({ type: 'download-start', wallTime: Date.now(), download: entry });
-    await download.saveAs(entry.outputFile);
-    entry.finished = true;
-    this._addLogEntry({ type: 'download-finish', wallTime: Date.now(), download: entry });
+    // Sapoto Tracer #1155 (Unit G-ops): capture the saveAs() promise on the
+    // entry so `_waitForPendingDownloads` can await it under a configurable
+    // budget — without this, `Tab.waitForCompletion` would return before
+    // the file is written to disk, racing with the embedder's tool-response
+    // pipeline. Setting `finished=true` happens inside the promise so the
+    // `download-finish` log entry lands AFTER the file is closed.
+    entry.savePromise = download.saveAs(entry.outputFile).then(() => {
+      entry.finished = true;
+      this._addLogEntry({ type: 'download-finish', wallTime: Date.now(), download: entry });
+    });
+    await entry.savePromise;
   }
 
   private _clearCollectedArtifacts() {
@@ -445,7 +467,63 @@ export class Tab extends EventEmitter<TabEventsInterface> {
 
   async waitForCompletion(callback: () => Promise<void>) {
     await this._initializedPromise;
+    // Sapoto Tracer #1155 (Unit G-ops): snapshot the download list BEFORE
+    // the callback fires so `_waitForPendingDownloads` can scope its wait
+    // to downloads that started during THIS tool call (vs. stale ones from
+    // an earlier tool that may already be in-flight).
+    const beforeCount = this._downloads.length;
     await this._raceAgainstModalStates(() => waitForCompletion(this, callback));
+    await this._waitForPendingDownloads(beforeCount);
+  }
+
+  /**
+   * Sapoto Tracer #1155 (Unit G-ops) — block the tool response on
+   * in-flight downloads that started after `beforeCount`, up to the
+   * configured `timeouts.download` ceiling.
+   *
+   * CRITICAL DEADLOCK-AVOIDANCE INVARIANT (PRD user story #24):
+   *
+   *   When `disableDownloads === true`, this method MUST early-return
+   *   BEFORE inspecting `_downloads` or building any race promise. The
+   *   `download` listener was never installed in that mode, so no
+   *   `savePromise` will EVER be created — waiting on a never-created
+   *   promise (via the timeout race) would still hold the response open
+   *   for the full `timeouts.download` budget, indirectly deadlocking the
+   *   tool response chain.
+   *
+   *   The early-return must live at the very top of this method, BEFORE
+   *   any loop or wait, so subsequent refactors don't accidentally
+   *   reintroduce the deadlock by moving the check below a wait/loop.
+   *
+   *   Test pin: tests/mcp/download-wait.spec.ts § "Test 1" measures
+   *   end-to-end response time with `--disable-downloads --timeout-download
+   *   1000` and asserts <500ms. If that assertion regresses, this
+   *   early-return likely moved or got deleted.
+   *
+   * When `timeouts.download` is undefined the method returns without
+   * waiting — preserves upstream-default behaviour for unflagged clients.
+   */
+  private async _waitForPendingDownloads(beforeCount: number): Promise<void> {
+    // Load-bearing early-return. Must stay at the very top — see invariant
+    // comment above. Do NOT inspect `_downloads` first; do NOT pre-build
+    // the timeout promise.
+    if (this.context.config.disableDownloads)
+      return;
+
+    const downloadTimeout = this.context.config.timeouts?.download;
+    if (downloadTimeout === undefined)
+      return;
+
+    const newDownloads = this._downloads.slice(beforeCount);
+    const pending = newDownloads.filter(d => !d.finished && d.savePromise);
+    if (pending.length === 0)
+      return;
+
+    const timeout = new Promise<void>(resolve => setTimeout(resolve, downloadTimeout));
+    await Promise.race([
+      Promise.all(pending.map(d => d.savePromise!.catch(() => {}))),
+      timeout,
+    ]);
   }
 
   async targetLocator(params: { element?: string, target: string }): Promise<{ locator: playwright.Locator, resolved: string }> {
