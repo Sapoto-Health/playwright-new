@@ -523,3 +523,71 @@ test.describe('resolveCLIConfigForCLI - extension', () => {
     expect(config.browser.isolated).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sapoto Tracer #1155 (Unit G-ops) — flag + env-var wiring for the four
+// embedder-ops options. Pins each surface (CLI + env) end-to-end so a
+// future refactor that silently drops a binding fails loudly here.
+// ---------------------------------------------------------------------------
+
+test.describe('Unit G-ops flag wiring', () => {
+  test('--filter-internal-urls CLI sets config.filterInternalUrls', async () => {
+    const config = await resolveCLIConfigForMCP({ filterInternalUrls: true }, emptyEnv) as any;
+    expect(config.filterInternalUrls).toBe(true);
+  });
+
+  test('PLAYWRIGHT_MCP_FILTER_INTERNAL_URLS=1 env sets config.filterInternalUrls', async () => {
+    const config = await resolveCLIConfigForMCP({}, { PLAYWRIGHT_MCP_FILTER_INTERNAL_URLS: '1' }) as any;
+    expect(config.filterInternalUrls).toBe(true);
+  });
+
+  test('config.filterInternalUrls undefined when neither CLI nor env set', async () => {
+    const config = await resolveCLIConfigForMCP({}, emptyEnv) as any;
+    expect(config.filterInternalUrls).toBeUndefined();
+  });
+
+  test('--disable-downloads CLI sets config.disableDownloads', async () => {
+    const config = await resolveCLIConfigForMCP({ disableDownloads: true }, emptyEnv) as any;
+    expect(config.disableDownloads).toBe(true);
+  });
+
+  test('PLAYWRIGHT_MCP_DISABLE_DOWNLOADS=1 env sets config.disableDownloads', async () => {
+    const config = await resolveCLIConfigForMCP({}, { PLAYWRIGHT_MCP_DISABLE_DOWNLOADS: '1' }) as any;
+    expect(config.disableDownloads).toBe(true);
+  });
+
+  test('--timeout-download CLI sets config.timeouts.download', async () => {
+    const config = await resolveCLIConfigForMCP({ timeoutDownload: 7500 }, emptyEnv);
+    expect(config.timeouts.download).toBe(7500);
+  });
+
+  test('PLAYWRIGHT_MCP_TIMEOUT_DOWNLOAD env sets config.timeouts.download', async () => {
+    const config = await resolveCLIConfigForMCP({}, { PLAYWRIGHT_MCP_TIMEOUT_DOWNLOAD: '7500' });
+    expect(config.timeouts.download).toBe(7500);
+  });
+
+  test('config.timeouts.download undefined preserves upstream-default no-wait behaviour', async () => {
+    const config = await resolveCLIConfigForMCP({}, emptyEnv);
+    expect(config.timeouts.download).toBeUndefined();
+  });
+
+  test('--allowed-tools CLI sets config.allowedTools', async () => {
+    const config = await resolveCLIConfigForMCP({ allowedTools: ['browser_navigate', 'browser_click'] }, emptyEnv) as any;
+    expect(config.allowedTools).toEqual(['browser_navigate', 'browser_click']);
+  });
+
+  test('PLAYWRIGHT_MCP_ALLOWED_TOOLS env sets config.allowedTools', async () => {
+    const config = await resolveCLIConfigForMCP({}, { PLAYWRIGHT_MCP_ALLOWED_TOOLS: 'browser_navigate,browser_click' }) as any;
+    expect(config.allowedTools).toEqual(['browser_navigate', 'browser_click']);
+  });
+
+  test('CLI --allowed-tools overrides PLAYWRIGHT_MCP_ALLOWED_TOOLS env', async () => {
+    // Pins precedence — CLI is intentionally higher-priority than env, so
+    // an embedder that hardcodes the env value can still be overridden ad hoc.
+    const config = await resolveCLIConfigForMCP(
+        { allowedTools: ['browser_snapshot'] },
+        { PLAYWRIGHT_MCP_ALLOWED_TOOLS: 'browser_navigate,browser_click' }
+    ) as any;
+    expect(config.allowedTools).toEqual(['browser_snapshot']);
+  });
+});

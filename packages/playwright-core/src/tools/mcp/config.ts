@@ -80,9 +80,18 @@ export type CLIOptions = {
   testIdAttribute?: string;
   timeoutAction?: number;
   timeoutNavigation?: number;
+  // Sapoto Tracer #1155 (Unit G-ops): block tool responses on in-flight
+  // downloads for up to this many milliseconds. See ContextConfig.timeouts.download.
+  timeoutDownload?: number;
   userAgent?: string;
   userDataDir?: string;
   viewportSize?: ViewportSize;
+  // Sapoto Tracer #1155 (Unit G-ops): see Config.filterInternalUrls.
+  filterInternalUrls?: boolean;
+  // Sapoto Tracer #1155 (Unit G-ops): see Config.disableDownloads.
+  disableDownloads?: boolean;
+  // Sapoto Tracer #1155 (Unit G-ops): see Config.allowedTools.
+  allowedTools?: string[];
 };
 
 const defaultConfig: MergedConfig = {
@@ -367,6 +376,10 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
     },
     allowUnrestrictedFileAccess: cliOptions.allowUnrestrictedFileAccess,
     captureBridge: cliOptions.captureBridge,
+    // Sapoto Tracer #1155 (Unit G-ops): boolean / list channel-only options.
+    filterInternalUrls: cliOptions.filterInternalUrls,
+    disableDownloads: cliOptions.disableDownloads,
+    allowedTools: cliOptions.allowedTools,
     codegen: cliOptions.codegen,
     saveSession: cliOptions.saveSession,
     secrets: cliOptions.secrets,
@@ -378,6 +391,8 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
     timeouts: {
       action: cliOptions.timeoutAction,
       navigation: cliOptions.timeoutNavigation,
+      // Sapoto Tracer #1155 (Unit G-ops): per-tool download wait budget.
+      download: cliOptions.timeoutDownload,
     },
   };
 
@@ -434,6 +449,13 @@ export function configFromEnv(env?: NodeJS.ProcessEnv): Config & { configFile?: 
   options.testIdAttribute = envToString(e.PLAYWRIGHT_MCP_TEST_ID_ATTRIBUTE);
   options.timeoutAction = numberParser(e.PLAYWRIGHT_MCP_TIMEOUT_ACTION);
   options.timeoutNavigation = numberParser(e.PLAYWRIGHT_MCP_TIMEOUT_NAVIGATION);
+  // Sapoto Tracer #1155 (Unit G-ops): env-var counterparts of the four
+  // ops CLI flags. Same parsers as `--timeout-*` / boolean flags for
+  // consistency with the CLI surface.
+  options.timeoutDownload = numberParser(e.PLAYWRIGHT_MCP_TIMEOUT_DOWNLOAD);
+  options.filterInternalUrls = envToBoolean(e.PLAYWRIGHT_MCP_FILTER_INTERNAL_URLS);
+  options.disableDownloads = envToBoolean(e.PLAYWRIGHT_MCP_DISABLE_DOWNLOADS);
+  options.allowedTools = commaSeparatedList(e.PLAYWRIGHT_MCP_ALLOWED_TOOLS);
   options.userAgent = envToString(e.PLAYWRIGHT_MCP_USER_AGENT);
   options.userDataDir = envToString(e.PLAYWRIGHT_MCP_USER_DATA_DIR);
   options.viewportSize = resolutionParser('--viewport-size', e.PLAYWRIGHT_MCP_VIEWPORT_SIZE);

@@ -206,6 +206,14 @@ export type Config = {
      * Configures default expect timeout: https://playwright.dev/docs/test-timeouts#expect-timeout. Defaults to 5000ms.
      */
     expect?: number;
+
+    /**
+     * Sapoto Tracer #1155 (Unit G-ops): per-tool budget (in milliseconds)
+     * for blocking the response on in-flight downloads that started
+     * during the tool call. When undefined, downloads are not awaited
+     * (upstream-compatible behaviour). Channel-only.
+     */
+    download?: number;
   };
 
   /**
@@ -240,4 +248,30 @@ export type Config = {
    * from `browser_tabs`. Channel-only; not exposed in public docs/types.
    */
   captureBridge?: boolean;
+
+  /**
+   * Sapoto Tracer #1155 (Unit G-ops): when true, exclude embedder-internal
+   * pages from `browser_tabs` and from the page-event stream. Hidden
+   * prefixes / hostnames: `file://`, `data:`, `chrome-extension://`, and
+   * the exact hostname `localhost`. Channel-only; not exposed in public
+   * docs/types.
+   */
+  filterInternalUrls?: boolean;
+
+  /**
+   * Sapoto Tracer #1155 (Unit G-ops): when true, skip Playwright's
+   * `page.on('download')` listener entirely so the embedder's capture
+   * stack owns downloads exclusively. Implies `_waitForPendingDownloads`
+   * early-returns — no `savePromise` will ever exist, and waiting on one
+   * would deadlock the tool response. Channel-only.
+   */
+  disableDownloads?: boolean;
+
+  /**
+   * Sapoto Tracer #1155 (Unit G-ops): comma-separated allowlist of MCP
+   * tool names to advertise via `tools/list`. Empty / unset disables the
+   * filter and advertises every tool the capability set selects.
+   * Channel-only.
+   */
+  allowedTools?: string[];
 };
