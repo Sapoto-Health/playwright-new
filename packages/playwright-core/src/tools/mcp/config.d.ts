@@ -232,4 +232,12 @@ export type Config = {
    * Specify the language to use for code generation.
    */
   codegen?: 'typescript' | 'none';
+
+  /**
+   * Sapoto Tracer #1154 (Unit I): install the capture-bridge IIFE on every
+   * page (C3 deferred print + C4 sync print fast-path mirror + C5
+   * window.open shim) and exclude `__sapoto_bg=V1:` background-target URLs
+   * from `browser_tabs`. Channel-only; not exposed in public docs/types.
+   */
+  captureBridge?: boolean;
 };

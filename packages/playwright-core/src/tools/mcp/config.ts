@@ -41,6 +41,10 @@ export type CLIOptions = {
   blockServiceWorkers?: boolean;
   browser?: string;
   caps?: string[];
+  // Sapoto Tracer #1154 (Unit I): install the capture-bridge IIFE on every
+  // page and exclude `__sapoto_bg=V1:` background-target URLs from
+  // `browser_tabs`. Channel-only; not exposed in public docs/types.
+  captureBridge?: boolean;
   cdpEndpoint?: string;
   cdpHeader?: Record<string, string>;
   // Sapoto Tracer #1153 (Unit G-stealth): wire-format string[] for the
@@ -362,6 +366,7 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
       blockedOrigins: cliOptions.blockedOrigins,
     },
     allowUnrestrictedFileAccess: cliOptions.allowUnrestrictedFileAccess,
+    captureBridge: cliOptions.captureBridge,
     codegen: cliOptions.codegen,
     saveSession: cliOptions.saveSession,
     secrets: cliOptions.secrets,
@@ -389,6 +394,8 @@ export function configFromEnv(env?: NodeJS.ProcessEnv): Config & { configFile?: 
   options.blockServiceWorkers = envToBoolean(e.PLAYWRIGHT_MCP_BLOCK_SERVICE_WORKERS);
   options.browser = envToString(e.PLAYWRIGHT_MCP_BROWSER);
   options.caps = commaSeparatedList(e.PLAYWRIGHT_MCP_CAPS);
+  // Sapoto Tracer #1154 (Unit I): env-var counterpart of --capture-bridge.
+  options.captureBridge = envToBoolean(e.PLAYWRIGHT_MCP_CAPTURE_BRIDGE);
   options.cdpEndpoint = envToString(e.PLAYWRIGHT_MCP_CDP_ENDPOINT);
   options.cdpHeader = headerParser(envToString(e.PLAYWRIGHT_MCP_CDP_HEADERS));
   // Sapoto Tracer #1153 (Unit G-stealth): env-var counterpart of --cdp-stealth.
