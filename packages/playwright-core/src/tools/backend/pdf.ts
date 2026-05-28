@@ -42,6 +42,44 @@ const pdf = defineTabTool({
   },
 });
 
+// Sapoto Tracer #1156 (Unit K) — browser_trigger_print.
+//
+// Calls `window.print()` on the current page. The Unit I capture-bridge init
+// script wraps the global `window.print` to route through the embedder's
+// `electronAPI.requestPrintCapture` bridge (or up the parent frame chain).
+// When no bridge is present the C3 IIFE silently suppresses the call after
+// a 2s deferral — better than a blocking native print dialog.
+//
+// Focused affordance: agents need exactly one knob ("trigger print") for
+// portals that only expose statement downloads behind the browser's Print
+// menu (Chase inline-PDF viewer, Citi statement preview, Fidelity report
+// iframe). The dedicated tool keeps the agent from conflating "trigger
+// print" with arbitrary script evaluation.
+const triggerPrint = defineTabTool({
+  capability: 'core',
+
+  schema: {
+    name: 'browser_trigger_print',
+    title: 'Trigger window.print()',
+    description: 'Triggers `window.print()` on the current page. Used to invoke the print bridge installed by `--capture-bridge` when no download affordance exists on the portal.',
+    inputSchema: z.object({}),
+    type: 'action',
+  },
+
+  handle: async (tab, _params, response) => {
+    // No bridge probe — the Unit I init script's C3 / C4 handlers route
+    // window.print() correctly whether or not electronAPI is present. From
+    // the tool's perspective we just need to invoke the global; the bridge
+    // (or its absence) is transparent.
+    await tab.page.evaluate(() => {
+      window.print();
+    });
+    response.addCode(`await page.evaluate(() => window.print());`);
+    response.addTextResult('window.print() triggered on current page.');
+  },
+});
+
 export default [
   pdf,
+  triggerPrint,
 ];
