@@ -65,6 +65,17 @@ export type BrowserOptions = {
   originalLaunchOptions: types.LaunchOptions;
   userDataDir?: string;
   noDefaults?: boolean;
+  // Sapoto Tracer #1152 (Unit E): typed Set of named CDP-stealth features
+  // gating per-feature mitigations inside the chromium driver. Always present
+  // (empty Set = no stealth applied — the consumer is dormant until Unit
+  // G-stealth (#1153) wires this from the CLI / channel surface).
+  //
+  // The element type is repeated inline rather than imported from
+  // `./chromium/crCdpStealth` because generic server modules cannot depend on
+  // chromium per DEPS.list. The chromium-side `CdpStealthFeature` union is
+  // structurally identical and is the single source of truth; this inline
+  // form just keeps `browser.ts` DEPS-clean.
+  cdpStealth: Set<'runtime-cycle' | 'log-skip' | 'worker-runtime'>;
 };
 
 export abstract class Browser extends SdkObject {

@@ -33,6 +33,12 @@ import { CRNetworkManager } from './crNetworkManager';
 import { CRPDF } from './crPdf';
 import { exceptionToError, releaseObject, stackTraceToLocation } from './crProtocolHelper';
 import { generateUtilityWorldName } from './crUtilityWorldName';
+import {
+  applyRuntimeCycle,
+  shouldCycleRuntimeOnFrameNavigation,
+  shouldCycleRuntimeOnInit,
+  shouldSkipLogEnable,
+} from './crCdpStealth';
 import { platformToFontFamilies } from './defaultFontFamilies';
 import { TargetClosedError } from '../errors';
 import { isSessionClosedError } from '../protocolError';
@@ -506,9 +512,23 @@ class FrameSession {
           this._eventListeners.push(eventsHelper.addEventListener(this._client, 'Page.lifecycleEvent', event => this._onLifecycleEvent(event)));
         }
       }),
-      this._client.send('Log.enable', {}),
+      // Sapoto Tracer #1152 (Unit E): the `log-skip` gate skips `Log.enable`.
+      // Log only surfaces browser-level warnings (deprecation notices, network
+      // errors); console messages come from Runtime.consoleAPICalled. Removing
+      // Log shrinks the CDP surface that anti-bot fingerprinters watch for.
+      ...(shouldSkipLogEnable(this._crPage._browserContext._browser.options.cdpStealth) ? [] : [this._client.send('Log.enable', {})]),
       lifecycleEventsEnabled = this._client.send('Page.setLifecycleEventsEnabled', { enabled: true }),
-      this._client.send('Runtime.enable', {}),
+      // Sapoto Tracer #1152 (Unit E): the `runtime-cycle` gate chains
+      // `Runtime.enable` → `Runtime.disable` so the long-lived Runtime domain
+      // (the `console.debug` Proxy trap is the strongest anti-bot fingerprint)
+      // is not visible to page scripts. The microtask boundary lets
+      // `executionContextCreated` events drain into Playwright's listeners
+      // first; `runIfWaitingForDebugger` runs later in this Promise.all so the
+      // page is still paused while we cycle.
+      this._client.send('Runtime.enable', {}).then(() => {
+        if (shouldCycleRuntimeOnInit(this._crPage._browserContext._browser.options.cdpStealth))
+          return Promise.resolve().then(() => this._client._sendMayFail('Runtime.disable'));
+      }),
       this._client.send('Page.addScriptToEvaluateOnNewDocument', {
         source: '',
         worldName: this._crPage.utilityWorldName,
@@ -634,6 +654,32 @@ class FrameSession {
     this._page.frameManager.frameCommittedNewDocumentNavigation(framePayload.id, framePayload.url + (framePayload.urlFragment || ''), framePayload.name || '', framePayload.loaderId, initial);
     if (!initial)
       this._firstNonInitialNavigationCommittedFulfill();
+
+    // Sapoto Tracer #1152 (Unit E): on a non-initial cross-document navigation,
+    // the new document's execution contexts need fresh discovery. But because
+    // we previously issued `Runtime.disable` (when `runtime-cycle` is on), the
+    // executionContextCreated event for the new document will NEVER fire while
+    // Runtime is dark. So we rapid-cycle here too — clear stale contexts
+    // manually first (Runtime.disable suppresses `executionContextsCleared`),
+    // then re-enable to discover the new ones, then immediately disable again.
+    //
+    // Page.frameNavigated fires at commit time, ahead of DOMContentLoaded, so
+    // the cycle completes before the new document's scripts run. The same
+    // `runtime-cycle` flag drives both this site and the init-time cycle —
+    // splitting them is intentionally out of scope (one mitigation, two
+    // surfaces).
+    //
+    // Ordering caveat: see chromedevtools/devtools-protocol#72. The
+    // `Runtime.enable → Runtime.disable` chain through `.then(...)` is
+    // load-bearing — if `Runtime.disable` raced the executionContextCreated
+    // drain we would lose the new context, and if it raced any later
+    // navigation resume the Runtime domain would be exposed.
+    if (shouldCycleRuntimeOnFrameNavigation(this._crPage._browserContext._browser.options.cdpStealth) && !initial) {
+      this._onExecutionContextsCleared();
+      this._client.send('Runtime.enable', {}).then(() => {
+        return Promise.resolve().then(() => this._client._sendMayFail('Runtime.disable'));
+      }).catch(() => {});
+    }
   }
 
   _onFrameRequestedNavigation(payload: Protocol.Page.frameRequestedNavigationPayload) {
@@ -744,11 +790,24 @@ class FrameSession {
       session.on('Inspector.workerScriptLoaded', () => worker.workerScriptLoaded());
     else
       worker.workerScriptLoaded();
-    // This might fail if the target is closed before we initialize.
-    session._sendMayFail('Runtime.enable');
+    // Sapoto Tracer #1152 (Unit E): the page-worker code path runs through
+    // `applyRuntimeCycle` — the SAME helper `CRServiceWorker` uses — so the
+    // `worker-runtime` gate cycles BOTH dedicated workers (this site) AND
+    // service workers (crServiceWorker.ts) uniformly. The previous-generation
+    // fork only wired the service-worker site, leaving §4.7 dedicated workers
+    // exposing the long-lived Runtime domain. Closing that gap is the entire
+    // point of this Tracer.
+    //
+    // The ordering chain inside `applyRuntimeCycle` is load-bearing:
+    //   Runtime.enable → (if worker-runtime) Runtime.disable → runIfWaitingForDebugger
+    // — see crCdpStealth.ts and chromedevtools/devtools-protocol#72.
+    //
+    // Fire-and-forget matches the prior `_sendMayFail` semantics: if the
+    // target closes mid-cycle the helper's internal `.catch(() => {})` swallows
+    // the rejection without crashing the worker constructor.
+    applyRuntimeCycle(session, this._crPage._browserContext._browser.options.cdpStealth).catch(() => {});
     // TODO: attribute workers to the right frame.
     this._crPage._networkManager.addSession(session, this._page.frameManager.frame(this._targetId) ?? undefined).catch(() => {});
-    session._sendMayFail('Runtime.runIfWaitingForDebugger');
     session._sendMayFail('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
     session.on('Target.attachedToTarget', event => this._onAttachedToTarget(event));
     session.on('Target.detachedFromTarget', event => this._onDetachedFromTarget(event));

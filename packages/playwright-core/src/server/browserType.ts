@@ -131,6 +131,9 @@ export abstract class BrowserType extends SdkObject {
         wsEndpoint,
         originalLaunchOptions: options,
         userDataDir: persistent ? userDataDir : undefined,
+        // Sapoto Tracer #1152 (Unit E): empty Set = no stealth applied.
+        // Unit G-stealth (#1153) will populate this from the CLI / channel.
+        cdpStealth: new Set(),
       };
       if (persistent)
         validateBrowserContextOptions(persistent, browserOptions);
