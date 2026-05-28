@@ -40,6 +40,12 @@ export function decorateMCPCommand(command: Command) {
       .option('--block-service-workers', 'block service workers')
       .option('--browser <browser>', 'browser or chrome channel to use, possible values: chrome, firefox, webkit, msedge.')
       .option('--caps <caps>', 'comma-separated list of additional capabilities to enable, possible values: vision, pdf, devtools.', commaSeparatedList)
+      // Sapoto Tracer #1154 (Unit I) — install the capture-bridge IIFE on
+      // every page (C3 deferred print + C4 sync print fast-path mirror +
+      // C5 window.open shim) and exclude `__sapoto_bg=V1:` background-target
+      // URLs from `browser_tabs`. Channel-only — not exposed in docs/api or
+      // the public types.d.ts.
+      .option('--capture-bridge', 'install the Sapoto capture-bridge IIFE on every page and hide background-target capture tabs from browser_tabs.')
       .option('--cdp-endpoint <endpoint>', 'CDP endpoint to connect to.')
       .option('--cdp-header <headers...>', 'CDP headers to send with the connect request, multiple can be specified.', headerParser)
       // Sapoto Tracer #1153 (Unit G-stealth) — decomposed CDP-stealth flag
