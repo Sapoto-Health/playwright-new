@@ -105,11 +105,22 @@ async function createIsolatedBrowser(config: FullConfig, clientInfo: ClientInfo)
 async function createCDPBrowser(config: FullConfig, clientInfo: ClientInfo): Promise<playwrightTypes.Browser> {
   testDebug('create browser (cdp)');
   const artifactsDir = await computeTracesDir(config, clientInfo);
-  const browser = await playwright.chromium.connectOverCDP(config.browser.cdpEndpoint!, {
+  // Sapoto Tracer #1153 (Unit G-stealth): forward the wire-format cdpStealth
+  // from launchOptions into the connectOverCDP params. The field is on the
+  // channel mixin but not on the public ConnectOverCDPOptions type, so we
+  // declare a narrow structural extension and route through it — the
+  // server-side dispatcher accepts the field via the regenerated channels.d.ts.
+  type LaunchOptionsWithStealth = playwrightTypes.LaunchOptions & { cdpStealth?: string[] };
+  type ConnectOverCDPWithStealth = Parameters<typeof playwright.chromium.connectOverCDP>[1] & { cdpStealth?: string[] };
+  const launchCdpStealth = (config.browser.launchOptions as LaunchOptionsWithStealth | undefined)?.cdpStealth;
+  const connectOptions: ConnectOverCDPWithStealth = {
     headers: config.browser.cdpHeaders,
     timeout: config.browser.cdpTimeout,
     artifactsDir,
-  });
+  };
+  if (launchCdpStealth !== undefined)
+    connectOptions.cdpStealth = launchCdpStealth;
+  const browser = await playwright.chromium.connectOverCDP(config.browser.cdpEndpoint!, connectOptions);
   return browser;
 }
 

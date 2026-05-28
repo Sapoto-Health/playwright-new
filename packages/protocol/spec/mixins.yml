@@ -94,6 +94,17 @@ LaunchOptions:
     chromiumSandbox: boolean?
     firefoxUserPrefs: json?
     cdpPort: int?
+    # Sapoto Tracer #1153 (Unit G-stealth): wire format for the CDP-stealth
+    # feature Set. Channel-only — NOT in docs/src/api/ or types.d.ts. The
+    # server-side parseCdpStealthFeatures rehydrates this to a typed
+    # Set<CdpStealthFeature> on BrowserOptions; unknown values (including
+    # "network-skip", which the previous-generation fork's Codex P1 review
+    # removed) throw on the server side. The CLI parser in
+    # packages/isomorphic/cdpStealthCli.ts also rejects "network-skip" loudly
+    # before it reaches the wire.
+    cdpStealth:
+      type: array?
+      items: string
 
 ContextOptions:
   type: mixin
