@@ -93,6 +93,10 @@ export async function connectOverRDP(progress: Progress, parent: SdkObject, endp
       downloadsPath: artifactsDir,
       tracesDir: artifactsDir,
       originalLaunchOptions: {},
+      // Sapoto Tracer #1152 (Unit E): empty Set = no stealth applied.
+      // WebKit doesn't consume cdpStealth, but the field is required on
+      // BrowserOptions; populate to satisfy the type.
+      cdpStealth: new Set(),
     });
     const shutdown = async () => {
       await created._closeAllTabs();

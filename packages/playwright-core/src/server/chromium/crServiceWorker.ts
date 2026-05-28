@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 import { Worker } from '../page';
+import { applyRuntimeCycle } from './crCdpStealth';
 import { createHandle, CRExecutionContext } from './crExecutionContext';
 import { CRNetworkManager } from './crNetworkManager';
 import { BrowserContext } from '../browserContext';
@@ -64,8 +65,14 @@ export class CRServiceWorker extends Worker {
       this.browserContext.emit(BrowserContext.Events.Console, message);
     });
 
-    session.send('Runtime.enable', {}).catch(e => {});
-    session.send('Runtime.runIfWaitingForDebugger').catch(e => {});
+    // Sapoto Tracer #1152 (Unit E): route the worker-startup CDP sequence
+    // through the shared `applyRuntimeCycle` helper. The `worker-runtime`
+    // gate then inserts `Runtime.disable` between enable and
+    // runIfWaitingForDebugger; absent the gate the behavior is identical to
+    // the upstream sequence (Runtime.enable + runIfWaitingForDebugger). The
+    // ordering chain is load-bearing — see crCdpStealth.ts and
+    // chromedevtools/devtools-protocol#72.
+    applyRuntimeCycle(session, this.browserContext._browser.options.cdpStealth).catch(() => {});
     session.on('Inspector.targetReloadedAfterCrash', () => {
       // Resume service worker after restart.
       session._sendMayFail('Runtime.runIfWaitingForDebugger', {});

@@ -363,6 +363,9 @@ export class AndroidDevice extends SdkObject {
         protocolLogger: helper.debugProtocolLogger(),
         browserLogsCollector: new RecentLogsCollector(),
         originalLaunchOptions: {},
+        // Sapoto Tracer #1152 (Unit E): empty Set = no stealth applied.
+        // Unit G-stealth (#1153) will populate this from the CLI / channel.
+        cdpStealth: new Set(),
       };
       validateBrowserContextOptions(options, browserOptions);
 

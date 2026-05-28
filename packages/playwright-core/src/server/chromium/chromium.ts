@@ -155,6 +155,9 @@ export class Chromium extends BrowserType {
         tracesDir: options.tracesDir || artifactsDir,
         originalLaunchOptions: {},
         noDefaults: options.noDefaults,
+        // Sapoto Tracer #1152 (Unit E): empty Set = no stealth applied.
+        // Unit G-stealth (#1153) will populate this from the CLI / channel.
+        cdpStealth: new Set(),
       };
       validateBrowserContextOptions(persistent, browserOptions);
       const browser = await progress.race(CRBrowser.connect(this.attribution.playwright, transport, browserOptions));

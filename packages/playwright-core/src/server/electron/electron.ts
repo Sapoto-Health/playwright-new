@@ -285,6 +285,9 @@ export class Electron extends SdkObject {
         downloadsPath: artifactsDir,
         tracesDir: options.tracesDir || artifactsDir,
         originalLaunchOptions: {},
+        // Sapoto Tracer #1152 (Unit E): empty Set = no stealth applied.
+        // Unit G-stealth (#1153) will populate this from the CLI / channel.
+        cdpStealth: new Set(),
       };
       validateBrowserContextOptions(contextOptions, browserOptions);
       const browser = await progress.race(CRBrowser.connect(this.attribution.playwright, chromeTransport, browserOptions));
