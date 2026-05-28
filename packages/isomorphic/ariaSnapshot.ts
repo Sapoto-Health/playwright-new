@@ -30,6 +30,7 @@ export type AriaProps = {
   disabled?: boolean;
   expanded?: boolean;
   active?: boolean;
+  haspopup?: 'menu' | 'listbox' | 'tree' | 'grid' | 'dialog';
   invalid?: boolean | 'grammar' | 'spelling';
   level?: number;
   pressed?: boolean | 'mixed';
@@ -68,7 +69,7 @@ export function hasPointerCursor(ariaNode: AriaNode): boolean {
 }
 
 function ariaPropsEqual(a: AriaProps, b: AriaProps): boolean {
-  return a.active === b.active && a.checked === b.checked && a.disabled === b.disabled && a.expanded === b.expanded && a.invalid === b.invalid && a.selected === b.selected && a.level === b.level && a.pressed === b.pressed;
+  return a.active === b.active && a.checked === b.checked && a.disabled === b.disabled && a.expanded === b.expanded && a.haspopup === b.haspopup && a.invalid === b.invalid && a.selected === b.selected && a.level === b.level && a.pressed === b.pressed;
 }
 
 // We pass parsed template between worlds using JSON, make it easy.
@@ -500,6 +501,13 @@ export class KeyParser {
     if (key === 'invalid') {
       this._assert(value === 'true' || value === 'false' || value === 'grammar' || value === 'spelling', 'Value of "invalid" attribute must be a boolean, "grammar" or "spelling"', errorPos);
       node.invalid = value === 'true' ? true : value === 'false' ? false : value;
+      return;
+    }
+    if (key === 'haspopup') {
+      // Bare `[haspopup]` defaults to `menu` per ARIA 1.2 (where `true` is an alias for `menu`).
+      // `[haspopup=true]` is normalized to `menu` for parity with the runtime helper.
+      this._assert(value === 'true' || value === 'menu' || value === 'listbox' || value === 'tree' || value === 'grid' || value === 'dialog', 'Value of "haspopup" attribute must be one of "true", "menu", "listbox", "tree", "grid", "dialog"', errorPos);
+      node.haspopup = value === 'true' ? 'menu' : value;
       return;
     }
     if (key === 'level') {

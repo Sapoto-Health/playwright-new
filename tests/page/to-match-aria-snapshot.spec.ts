@@ -973,3 +973,77 @@ test('invalid attribute', { annotation: { type: 'issue', description: 'https://g
     - textbox "Zip" [invalid]
   `);
 });
+
+test('haspopup attribute renders kind', async ({ page }) => {
+  await page.setContent(`
+    <button aria-haspopup="menu">Menu</button>
+    <button aria-haspopup="listbox">Choose</button>
+    <button aria-haspopup="true">True</button>
+    <button aria-haspopup="dialog">Open</button>
+    <button>Plain</button>
+  `);
+
+  // `aria-haspopup="menu"` (and the `"true"` alias, per ARIA 1.2) render bare `[haspopup]`.
+  // Non-default kinds render `[haspopup=<kind>]`.
+  await expect(page).toMatchAriaSnapshot(`
+    - button "Menu" [haspopup]
+    - button "Choose" [haspopup=listbox]
+    - button "True" [haspopup]
+    - button "Open" [haspopup=dialog]
+    - button "Plain"
+  `);
+});
+
+test('expanded=false rendering is explicit', async ({ page }) => {
+  await page.setContent(`
+    <button aria-expanded="false">Collapse</button>
+    <button aria-expanded="true">Expand</button>
+    <button>Plain</button>
+  `);
+
+  // Both states must be addressable: `[expanded=false]` distinguishes "collapsed disclosure"
+  // from "no expandable widget" (which renders bare).
+  await expect(page).toMatchAriaSnapshot(`
+    - button "Collapse" [expanded=false]
+    - button "Expand" [expanded]
+    - button "Plain"
+  `);
+
+  // The `[expanded=false]` literal must match only collapsed elements.
+  const collapsedOnlyError = await expect(page).toMatchAriaSnapshot(`
+    - button "Expand" [expanded=false]
+  `, { timeout: 1000 }).catch(e => e);
+  expect(stripAnsi(collapsedOnlyError.message)).toContain('expect(page).toMatchAriaSnapshot(expected) failed');
+});
+
+test('haspopup match-template positive and negative', async ({ page }) => {
+  await page.setContent(`
+    <button aria-haspopup="menu">Menu</button>
+    <button aria-haspopup="listbox">Choose</button>
+  `);
+
+  // Positive: bare `[haspopup]` and `[haspopup=menu]` both match an `aria-haspopup="menu"` element.
+  await expect(page).toMatchAriaSnapshot(`
+    - button "Menu" [haspopup]
+  `);
+  await expect(page).toMatchAriaSnapshot(`
+    - button "Menu" [haspopup=menu]
+  `);
+
+  // Positive: kind-specific match for `aria-haspopup="listbox"`.
+  await expect(page).toMatchAriaSnapshot(`
+    - button "Choose" [haspopup=listbox]
+  `);
+
+  // Negative: `[haspopup=menu]` must NOT match an `aria-haspopup="listbox"` element.
+  const wrongKindError = await expect(page).toMatchAriaSnapshot(`
+    - button "Choose" [haspopup=menu]
+  `, { timeout: 1000 }).catch(e => e);
+  expect(stripAnsi(wrongKindError.message)).toContain('expect(page).toMatchAriaSnapshot(expected) failed');
+
+  // `[haspopup=true]` is normalized to `menu` at parse time, mirroring the runtime helper.
+  await page.setContent(`<button aria-haspopup="true">True</button>`);
+  await expect(page).toMatchAriaSnapshot(`
+    - button "True" [haspopup=true]
+  `);
+});
