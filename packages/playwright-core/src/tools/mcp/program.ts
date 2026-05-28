@@ -35,6 +35,11 @@ export function decorateMCPCommand(command: Command) {
   command
       .option('--allowed-hosts <hosts...>', 'comma-separated list of hosts this server is allowed to serve from. Defaults to the host the server is bound to. Pass \'*\' to disable the host check.', commaSeparatedList)
       .option('--allowed-origins <origins>', 'semicolon-separated list of TRUSTED origins to allow the browser to request. Default is to allow all.\nImportant: *does not* serve as a security boundary and *does not* affect redirects. ', semicolonSeparatedList)
+      // Sapoto Tracer #1155 (Unit G-ops) — comma-separated allowlist of MCP
+      // tool names. When non-empty, `tools/list` advertises only the
+      // intersection of (capability-selected tools) ∩ (this allowlist).
+      // Channel-only — not exposed in docs/api or the public types.d.ts.
+      .option('--allowed-tools <tools>', 'comma-separated list of tool names to expose. If specified, only these tools are visible via tools/list.', commaSeparatedList)
       .option('--allow-unrestricted-file-access', 'allow access to files outside of the workspace roots. Also allows unrestricted access to file:// URLs. By default access to file system is restricted to workspace root directories (or cwd if no roots are configured) only, and navigation to file:// URLs is blocked.')
       .option('--blocked-origins <origins>', 'semicolon-separated list of origins to block the browser from requesting. Blocklist is evaluated before allowlist. If used without the allowlist, requests not matching the blocklist are still allowed.\nImportant: *does not* serve as a security boundary and *does not* affect redirects.', semicolonSeparatedList)
       .option('--block-service-workers', 'block service workers')
@@ -58,8 +63,16 @@ export function decorateMCPCommand(command: Command) {
       .option('--config <path>', 'path to the configuration file.')
       .option('--console-level <level>', 'level of console messages to return: "error", "warning", "info", "debug". Each level includes the messages of more severe levels.', enumParser.bind(null, '--console-level', ['error', 'warning', 'info', 'debug']))
       .option('--device <device>', 'device to emulate, for example: "iPhone 15"')
+      // Sapoto Tracer #1155 (Unit G-ops) — skip Playwright's
+      // page.on('download') listener entirely; the embedder's capture
+      // stack owns downloads exclusively. Channel-only.
+      .option('--disable-downloads', 'disable Playwright download handling (the embedder\'s capture stack owns downloads).')
       .option('--executable-path <path>', 'path to the browser executable.')
       .option('--extension', 'Connect to a running browser instance (Edge/Chrome only). Requires the "Playwright Extension" to be installed.')
+      // Sapoto Tracer #1155 (Unit G-ops) — hide embedder-internal pages
+      // (file://, data:, chrome-extension://, hostname `localhost`) from
+      // `browser_tabs`. Channel-only.
+      .option('--filter-internal-urls', 'filter embedder-internal pages (file://, data:, chrome-extension://, localhost) from the browser_tabs listing.')
       .option('--endpoint <endpoint>', 'Bound browser endpoint to connect to.')
       .option('--grant-permissions <permissions...>', 'List of permissions to grant to the browser context, for example "geolocation", "clipboard-read", "clipboard-write".', commaSeparatedList)
       .option('--headless', 'run browser in headless mode, headed by default')
@@ -84,6 +97,9 @@ export function decorateMCPCommand(command: Command) {
       .option('--storage-state <path>', 'path to the storage state file for isolated sessions.')
       .option('--test-id-attribute <attribute>', 'specify the attribute to use for test ids, defaults to "data-testid"')
       .option('--timeout-action <timeout>', 'specify action timeout in milliseconds, defaults to 5000ms', numberParser)
+      // Sapoto Tracer #1155 (Unit G-ops) — per-tool budget for blocking
+      // tool responses on in-flight downloads. Channel-only.
+      .option('--timeout-download <timeout>', 'specify the maximum time in milliseconds tool responses block on in-flight downloads. Unset = no waiting.', numberParser)
       .option('--timeout-navigation <timeout>', 'specify navigation timeout in milliseconds, defaults to 60000ms', numberParser)
       .option('--user-agent <ua string>', 'specify user agent string')
       .option('--user-data-dir <path>', 'path to the user data directory. If not specified, a temporary directory will be created.')
