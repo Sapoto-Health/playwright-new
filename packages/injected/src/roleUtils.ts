@@ -590,6 +590,30 @@ export function getAriaInvalid(element: Element): 'false' | 'true' | 'grammar' |
   return 'true';
 }
 
+// Roles where `aria-haspopup` is conceptually meaningful per WAI-ARIA 1.2.
+// See https://www.w3.org/TR/wai-aria-1.2/#aria-haspopup for the supported list.
+export const kAriaHaspopupRoles = ['button', 'link', 'menuitem', 'combobox', 'tab', 'menuitemcheckbox', 'menuitemradio', 'gridcell', 'textbox'];
+
+// Valid `aria-haspopup` kinds per WAI-ARIA 1.2.
+// Note: `"true"` is an alias for `"menu"` per spec, and is normalized at read time.
+export const kAriaHaspopupValues = new Set<'menu' | 'listbox' | 'tree' | 'grid' | 'dialog'>(['menu', 'listbox', 'tree', 'grid', 'dialog']);
+
+export function getAriaHaspopup(element: Element): 'menu' | 'listbox' | 'tree' | 'grid' | 'dialog' | null {
+  // https://www.w3.org/TR/wai-aria-1.2/#aria-haspopup
+  // Allowed values: false | true | menu | listbox | tree | grid | dialog.
+  // Per spec, `"true"` is an alias for `"menu"`.
+  if (!kAriaHaspopupRoles.includes(getAriaRole(element) || ''))
+    return null;
+  const haspopup = element.getAttribute('aria-haspopup');
+  if (haspopup === null || haspopup.trim() === '' || haspopup.toLocaleLowerCase() === 'false')
+    return null;
+  if (haspopup === 'true')
+    return 'menu';
+  if (kAriaHaspopupValues.has(haspopup as any))
+    return haspopup as 'menu' | 'listbox' | 'tree' | 'grid' | 'dialog';
+  return null;
+}
+
 function getValidityInvalid(element: Element) {
   if ('validity' in element){
     const validity = element.validity as ValidityState | undefined;
