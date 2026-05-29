@@ -41,7 +41,7 @@ test('browser_click', async ({ client, server }) => {
     },
   })).toHaveResponse({
     code: `await page.getByRole('button', { name: 'Submit' }).click();`,
-    snapshot: expect.stringContaining(`button "Submit" [active] [ref=e2]`),
+    snapshot: expect.stringMatching(/button "Submit" \[active\] \[ref=e2\] \[box=\d+,\d+,\d+,\d+\]/),
   });
 });
 
@@ -139,7 +139,7 @@ test('browser_click (modifiers)', async ({ client, server, mcpBrowser }) => {
         `  modifiers: ['Control']`,
         `});`
       ].join('\n'),
-      snapshot: expect.stringContaining(`generic [ref=e3]: ctrlKey:true metaKey:false shiftKey:false altKey:false`),
+      snapshot: expect.stringMatching(/generic \[ref=e3\] \[box=\d+,\d+,\d+,\d+\]: ctrlKey:true metaKey:false shiftKey:false altKey:false/),
     });
   }
 
@@ -156,7 +156,7 @@ test('browser_click (modifiers)', async ({ client, server, mcpBrowser }) => {
       `  modifiers: ['Shift']`,
       `});`
     ].join('\n'),
-    snapshot: expect.stringContaining(`generic [ref=e3]: ctrlKey:false metaKey:false shiftKey:true altKey:false`),
+    snapshot: expect.stringMatching(/generic \[ref=e3\] \[box=\d+,\d+,\d+,\d+\]: ctrlKey:false metaKey:false shiftKey:true altKey:false/),
   });
 
   expect(await client.callTool({
@@ -172,7 +172,7 @@ test('browser_click (modifiers)', async ({ client, server, mcpBrowser }) => {
       `  modifiers: ['Shift', 'Alt']`,
       `});`
     ].join('\n'),
-    snapshot: expect.stringContaining(`generic [ref=e3]: ctrlKey:false metaKey:false shiftKey:true altKey:true`),
+    snapshot: expect.stringMatching(/generic \[ref=e3\] \[box=\d+,\d+,\d+,\d+\]: ctrlKey:false metaKey:false shiftKey:true altKey:true/),
   });
 });
 

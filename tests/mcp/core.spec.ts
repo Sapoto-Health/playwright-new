@@ -289,13 +289,13 @@ test('snapshot with boxes', async ({ client, server }) => {
 
   expect(await client.callTool({
     name: 'browser_snapshot',
-    arguments: { boxes: true },
   })).toHaveResponse({
     inlineSnapshot: expect.stringContaining(`- button "click" [ref=e1] [box=100,50,80,40]`),
   });
 
   expect(await client.callTool({
     name: 'browser_snapshot',
+    arguments: { boxes: false },
   })).toHaveResponse({
     inlineSnapshot: expect.not.stringMatching(/\[box=/),
   });

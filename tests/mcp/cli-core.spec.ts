@@ -327,17 +327,17 @@ test('snapshot depth', async ({ cli, server }) => {
     - button "Cancel" [ref=e6]`);
 });
 
-test('snapshot --boxes', async ({ cli, server }) => {
+test('snapshot includes boxes by default and allows opt-out', async ({ cli, server }) => {
   server.setContent('/', `
     <style>body { margin: 0; }</style>
     <button style="position:absolute;left:100px;top:50px;width:80px;height:40px;margin:0;padding:0;border:0;">click</button>
   `, 'text/html');
   await cli('open', server.PREFIX);
 
-  const { inlineSnapshot } = await cli('snapshot', '--boxes');
+  const { inlineSnapshot } = await cli('snapshot');
   expect(inlineSnapshot).toContain(`- button "click" [ref=e1] [box=100,50,80,40]`);
 
-  const { inlineSnapshot: plain } = await cli('snapshot');
+  const { inlineSnapshot: plain } = await cli('snapshot', '--no-boxes');
   expect(plain).not.toMatch(/\[box=/);
 });
 
