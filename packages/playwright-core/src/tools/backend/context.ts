@@ -26,6 +26,7 @@ import { isPathInside, isSystemDirectory, isWritable } from '@utils/fileUtils';
 import { playwright } from '../../inprocess';
 
 import { Tab } from './tab';
+import { buildOverlayScript } from './agentSessionOverlay';
 import { buildCaptureBridgeInitScript, isBackgroundTargetUrl } from './captureBridgeInitScript';
 import { isInternalUrl } from './opsFilters';
 
@@ -327,7 +328,7 @@ export class Context {
       this._startPageVideo(page).catch(() => {});
       return;
     }
-    const tab = new Tab(this, page, tab => this._onPageClosed(tab));
+    const tab = new Tab(this, page, tab => this._onPageClosed(tab), buildOverlayScript({ statusText: 'MCP' }));
     this._tabs.push(tab);
     if (!this._currentTab)
       this._currentTab = tab;

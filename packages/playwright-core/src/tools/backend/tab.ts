@@ -26,6 +26,7 @@ import { LogFile } from './logFile';
 import { ModalState } from './tool';
 import { handleDialog } from './dialogs';
 import { uploadFile } from './files';
+import { AGENT_SESSION_OVERLAY_GLOBAL } from './agentSessionOverlay';
 
 import type { Disposable } from '@isomorphic/disposable';
 import type { Context, ContextConfig } from './context';
@@ -106,15 +107,17 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private _recentEventEntries: EventEntry[] = [];
   private _consoleLog: LogFile;
   private _disposables: Disposable[];
+  private _agentSessionOverlayScript: string | undefined;
   readonly actionTimeoutOptions: { timeout?: number; };
   readonly navigationTimeoutOptions: { timeout?: number; };
   readonly expectTimeoutOptions: { timeout?: number; };
 
-  constructor(context: Context, page: playwright.Page, onPageClose: (tab: Tab) => void) {
+  constructor(context: Context, page: playwright.Page, onPageClose: (tab: Tab) => void, agentSessionOverlayScript?: string) {
     super();
     this.context = context;
     this.page = page;
     this._onPageClose = onPageClose;
+    this._agentSessionOverlayScript = agentSessionOverlayScript;
     const p = page;
     this._disposables = [
       eventsHelper.addEventListener(p, 'console', event => this._handleConsoleMessage(messageToConsoleMessage(event))),
@@ -156,6 +159,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async dispose() {
+    await this.removeAgentSessionOverlay();
     await disposeAll(this._disposables);
     this._consoleLog.stop();
   }
@@ -177,6 +181,14 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   private async _initialize() {
+    if (this._agentSessionOverlayScript) {
+      try {
+        this._disposables.push(await this.page.addInitScript({ content: this._agentSessionOverlayScript }));
+        await this.page.evaluate(this._agentSessionOverlayScript).catch(() => {});
+      } catch (e) {
+        debug('pw:tools:error')(e);
+      }
+    }
     for (const message of await Tab.collectConsoleMessages(this.page))
       this._handleConsoleMessage(message);
     const requests = await this.page.requests().catch(() => []);
@@ -204,6 +216,34 @@ export class Tab extends EventEmitter<TabEventsInterface> {
 
   clearModalState(modalState: ModalState) {
     this._modalStates = this._modalStates.filter(state => state !== modalState);
+  }
+
+  async hideAgentSessionOverlayForCapture() {
+    await this._evaluateAgentSessionOverlayHelper('hide');
+  }
+
+  async showAgentSessionOverlayAfterCapture() {
+    await this._evaluateAgentSessionOverlayHelper('show');
+  }
+
+  async removeAgentSessionOverlay() {
+    await this._evaluateAgentSessionOverlayHelper('remove');
+  }
+
+  private async _evaluateAgentSessionOverlayHelper(method: 'hide' | 'show' | 'remove') {
+    try {
+      await this._initializedPromise;
+      await this.page.evaluate(({ globalName, method }) => {
+        const helper = Reflect.get(window, globalName);
+        if (!helper || typeof helper !== 'object')
+          return;
+        const methodValue = Reflect.get(helper, method);
+        if (typeof methodValue === 'function')
+          methodValue.call(helper);
+      }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, method });
+    } catch (e) {
+      debug('pw:tools:error')(e);
+    }
   }
 
   private _dialogShown(dialog: playwright.Dialog) {

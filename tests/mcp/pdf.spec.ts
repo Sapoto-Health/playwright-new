@@ -44,7 +44,7 @@ test('save as pdf', async ({ startClient, mcpBrowser, server }, testInfo) => {
     name: 'browser_navigate',
     arguments: { url: server.HELLO_WORLD },
   })).toHaveResponse({
-    snapshot: expect.stringContaining(`- generic [active] [ref=e1]: Hello, world!`),
+    snapshot: expect.stringMatching(/- generic \[active\] \[ref=e1\](?: \[box=\d+,\d+,\d+,\d+\])?: Hello, world!/),
   });
 
   expect(await client.callTool({
@@ -65,7 +65,7 @@ test('save as pdf (filename: output.pdf)', async ({ startClient, mcpBrowser, ser
     name: 'browser_navigate',
     arguments: { url: server.HELLO_WORLD },
   })).toHaveResponse({
-    snapshot: expect.stringContaining(`- generic [active] [ref=e1]: Hello, world!`),
+    snapshot: expect.stringMatching(/- generic \[active\] \[ref=e1\](?: \[box=\d+,\d+,\d+,\d+\])?: Hello, world!/),
   });
 
   expect(await client.callTool({

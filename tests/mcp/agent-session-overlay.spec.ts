@@ -1,0 +1,191 @@
+/**
+ * Copyright (c) Microsoft Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import fs from 'fs';
+import path from 'path';
+
+import { test, expect, parseResponse } from './fixtures';
+import { PNG } from '../../packages/playwright-core/lib/utilsBundle';
+
+const HOST_SELECTOR = 'sapoto-mcp-agent-session-overlay';
+
+async function overlayState(client: any) {
+  const response = await client.callTool({
+    name: 'browser_evaluate',
+    arguments: {
+      function: `() => {
+        const host = document.querySelector('${HOST_SELECTOR}');
+        return {
+          count: document.querySelectorAll('${HOST_SELECTOR}').length,
+          exists: !!host,
+          ariaHidden: host?.getAttribute('aria-hidden') ?? null,
+          display: host ? getComputedStyle(host).display : null,
+          pointerEvents: host ? getComputedStyle(host).pointerEvents : null,
+          zIndex: host ? getComputedStyle(host).zIndex : null,
+          shadowRootIsClosed: host ? !host.shadowRoot : null,
+        };
+      }`,
+    },
+  });
+  return JSON.parse(parseResponse(response, test.info().outputPath()).result!);
+}
+
+function newestPng(outputDir: string): Buffer {
+  const files = fs.readdirSync(outputDir).filter(file => file.endsWith('.png')).sort();
+  expect(files.length).toBeGreaterThan(0);
+  return fs.readFileSync(path.join(outputDir, files[files.length - 1]));
+}
+
+function countOrangePixels(buffer: Buffer): number {
+  const png = PNG.sync.read(buffer);
+  let orange = 0;
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      const idx = (png.width * y + x) * 4;
+      const r = png.data[idx];
+      const g = png.data[idx + 1];
+      const b = png.data[idx + 2];
+      if (r > 200 && g > 60 && g < 180 && b < 90)
+        orange += 1;
+    }
+  }
+  return orange;
+}
+
+test('agent-session overlay is visible to the live page but hidden from browser_snapshot', async ({ startClient, server }) => {
+  const { client } = await startClient();
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: { url: server.HELLO_WORLD },
+  });
+
+  expect(await overlayState(client)).toEqual({
+    count: 1,
+    exists: true,
+    ariaHidden: 'true',
+    display: 'block',
+    pointerEvents: 'none',
+    zIndex: '2147483647',
+    shadowRootIsClosed: true,
+  });
+
+  expect(await client.callTool({ name: 'browser_snapshot' })).toHaveResponse({
+    snapshot: expect.not.stringContaining('Stop'),
+  });
+});
+
+test('agent-session overlay is idempotent across navigation and heals host removal', async ({ startClient, server }) => {
+  const { client } = await startClient();
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: { url: server.HELLO_WORLD },
+  });
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: { url: server.PREFIX },
+  });
+
+  expect((await overlayState(client)).count).toBe(1);
+
+  await client.callTool({
+    name: 'browser_evaluate',
+    arguments: {
+      function: `() => document.querySelector('${HOST_SELECTOR}')?.remove()`,
+    },
+  });
+
+  await expect.poll(async () => (await overlayState(client)).count).toBe(1);
+});
+
+test('browser_take_screenshot hides the agent-session overlay during capture', async ({ startClient }, testInfo) => {
+  const outputDir = testInfo.outputPath('output');
+  const { client } = await startClient({ config: { outputDir } });
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: {
+      url: 'data:text/html,<!doctype html><html><body style="margin:0;background:#000"><main style="height:100vh"></main></body></html>',
+    },
+  });
+  expect((await overlayState(client)).exists).toBe(true);
+
+  await client.callTool({ name: 'browser_take_screenshot' });
+
+  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect((await overlayState(client)).display).toBe('block');
+});
+
+test('browser_take_screenshot first operation on a fresh tab does not capture the agent-session overlay', async ({ startClient }, testInfo) => {
+  const outputDir = testInfo.outputPath('output');
+  const { client } = await startClient({ config: { outputDir } });
+
+  expect(await client.callTool({ name: 'browser_take_screenshot' })).toHaveResponse({
+    code: expect.stringContaining(`await page.screenshot(`),
+    result: expect.stringMatching(/\[Screenshot of viewport\]\(.*page-[^:]+.png\)/),
+  });
+
+  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect((await overlayState(client)).display).toBe('block');
+});
+
+test('browser_take_ocr_friendly_screenshot hides the agent-session overlay during capture', async ({ startClient }, testInfo) => {
+  const outputDir = testInfo.outputPath('output');
+  const { client } = await startClient({ config: { outputDir } });
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: {
+      url: 'data:text/html,<!doctype html><html><body style="margin:0;background:#000"><main style="height:100vh"></main></body></html>',
+    },
+  });
+  expect((await overlayState(client)).exists).toBe(true);
+
+  await client.callTool({
+    name: 'browser_take_ocr_friendly_screenshot',
+    arguments: { tileHeight: 2000 },
+  });
+
+  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect((await overlayState(client)).display).toBe('block');
+});
+
+test('browser_pdf_save restores the agent-session overlay after capture', async ({ startClient, server }, testInfo) => {
+  const outputDir = testInfo.outputPath('output');
+  const { client } = await startClient({
+    config: { outputDir, capabilities: ['pdf'] },
+  });
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: { url: server.HELLO_WORLD },
+  });
+  expect((await overlayState(client)).exists).toBe(true);
+
+  const result = await client.callTool({ name: 'browser_pdf_save' });
+  expect(result.isError).toBeFalsy();
+  expect((await overlayState(client)).display).toBe('block');
+});
+
+test('agent-session overlay skips hidden background marker targets', async ({ cdpServer, startClient }) => {
+  const browserContext = await cdpServer.start();
+  await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`] });
+
+  const cdpSession = await browserContext.newCDPSession(browserContext.pages()[0]);
+  const markerUrl = `data:text/html,<body>background</body>#__sapoto_bg=V1:overlay-${Date.now()}`;
+  await cdpSession.send('Target.createTarget', { url: markerUrl });
+
+  await expect.poll(() => browserContext.pages().some(page => page.url().includes('__sapoto_bg=V1:'))).toBe(true);
+
+  const backgroundPage = browserContext.pages().find(page => page.url().includes('__sapoto_bg=V1:'))!;
+  expect(await backgroundPage.locator(HOST_SELECTOR).count()).toBe(0);
+});
