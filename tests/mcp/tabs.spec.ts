@@ -61,14 +61,14 @@ test('create new tab', async ({ client }) => {
   expect(await createTab(client, 'Tab one', 'Body one')).toHaveResponse({
     tabs: `- 0: [](about:blank)
 - 1: (current) [Tab one](data:text/html,<title>Tab one</title><body>Body one</body>)`,
-    snapshot: `- generic [active] [ref=e1]: Body one`,
+    snapshot: expect.stringMatching(/- generic \[active\] \[ref=e1\](?: \[box=\d+,\d+,\d+,\d+\])?: Body one/),
   });
 
   expect(await createTab(client, 'Tab two', 'Body two')).toHaveResponse({
     tabs: `- 0: [](about:blank)
 - 1: [Tab one](data:text/html,<title>Tab one</title><body>Body one</body>)
 - 2: (current) [Tab two](data:text/html,<title>Tab two</title><body>Body two</body>)`,
-    snapshot: `- generic [active] [ref=e1]: Body two`,
+    snapshot: expect.stringMatching(/- generic \[active\] \[ref=e1\](?: \[box=\d+,\d+,\d+,\d+\])?: Body two/),
   });
   expect(await client.callTool({
     name: 'browser_snapshot',
@@ -118,6 +118,69 @@ test('select tab', async ({ client }) => {
 - 1: [Tab one](data:text/html,<title>Tab one</title><body>Body one</body>)
 - 2: [Tab two](data:text/html,<title>Tab two</title><body>Body two</body>)`,
   });
+});
+
+test('select tab does not send Page.bringToFront by default', async ({ cdpServer, startClient }) => {
+  const browserContext = await cdpServer.start();
+  const [firstPage] = browserContext.pages();
+  await firstPage.goto('data:text/html,<title>Tab one</title><body>Body one</body>');
+  const secondPage = await browserContext.newPage();
+  await secondPage.goto('data:text/html,<title>Tab two</title><body>Body two</body>');
+
+  const { client, stderr } = await startClient({
+    args: [`--cdp-endpoint=${cdpServer.endpoint}`],
+    env: { DEBUG: 'pw:protocol' },
+  });
+  await client.callTool({
+    name: 'browser_tabs',
+    arguments: {
+      action: 'list',
+    },
+  });
+
+  const beforeSelectStderr = stderr();
+  const selectResponse = await client.callTool({
+    name: 'browser_tabs',
+    arguments: {
+      action: 'select',
+      index: 0,
+    },
+  });
+
+  expect(JSON.stringify(selectResponse)).toContain('(current)');
+  expect(stderr().slice(beforeSelectStderr.length)).not.toContain('Page.bringToFront');
+});
+
+test('select tab can explicitly activate the page', async ({ cdpServer, startClient }) => {
+  const browserContext = await cdpServer.start();
+  const [firstPage] = browserContext.pages();
+  await firstPage.goto('data:text/html,<title>Tab one</title><body>Body one</body>');
+  const secondPage = await browserContext.newPage();
+  await secondPage.goto('data:text/html,<title>Tab two</title><body>Body two</body>');
+
+  const { client, stderr } = await startClient({
+    args: [`--cdp-endpoint=${cdpServer.endpoint}`],
+    env: { DEBUG: 'pw:protocol' },
+  });
+  await client.callTool({
+    name: 'browser_tabs',
+    arguments: {
+      action: 'list',
+    },
+  });
+
+  const beforeSelectStderr = stderr();
+  const selectResponse = await client.callTool({
+    name: 'browser_tabs',
+    arguments: {
+      action: 'select',
+      index: 0,
+      activate: true,
+    },
+  });
+
+  expect(JSON.stringify(selectResponse)).toContain('(current)');
+  expect(stderr().slice(beforeSelectStderr.length)).toContain('Page.bringToFront');
 });
 
 test('close tab', async ({ client }) => {

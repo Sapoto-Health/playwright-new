@@ -22,13 +22,13 @@
  *   - Download-y URL + electronAPI bridge present → emit `[FocusShim]
  *     background-open <url>` console marker and return null (orchestrator
  *     spawns a hidden CDP target).
- *   - Download-y URL + no electronAPI bridge → native window.open (focus
- *     steals but we have no orchestrator to spawn for).
+ *   - Download-y/blob URL + no electronAPI bridge → emit the same console
+ *     marker and return null because direct-Chrome mode observes the marker
+ *     through CDP Runtime.consoleAPICalled.
  *   - Self-targeting (_self / _parent / _top / empty target) → native
  *     window.open (no focus steal to suppress).
- *   - Fake / structurally-invalid electronAPI → treat as no bridge (PRD
- *     user-story #28 — bare `typeof !== 'undefined'` would be a hostile-
- *     page disable vector).
+ *   - Fake / structurally-invalid electronAPI → console marker still emits;
+ *     requestPrintCapture is simply not called.
  *
  * Descriptor:
  *   - configurable: true (matches stock Chrome — configurable:false would
@@ -67,6 +67,30 @@ it('C5: emits [FocusShim] background-open marker when bridge present and URL loo
   const marker = consoleMessages.find(t => t.includes('[FocusShim]') && t.includes('background-open'));
   expect(marker).toBeTruthy();
   expect(marker).toContain('https://example.com/statement.pdf');
+});
+
+it('C5: blob _blank popup emits background-open marker without electronAPI bridge', async ({ context, server }) => {
+  await context.addInitScript({ content: BRIDGE_SCRIPT });
+
+  const page = await context.newPage();
+  const consoleMessages: string[] = [];
+  page.on('console', msg => consoleMessages.push(msg.text()));
+
+  await page.goto(server.EMPTY_PAGE);
+  const result = await page.evaluate(() => {
+    const blob = new Blob(['statement'], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const opened = window.open(url, '_blank');
+    return {
+      returnedNull: opened === null,
+      url,
+    };
+  });
+
+  expect(result.returnedNull).toBe(true);
+  const marker = consoleMessages.find(t => t.includes('[FocusShim]') && t.includes('background-open'));
+  expect(marker).toBeTruthy();
+  expect(marker).toContain(result.url);
 });
 
 it('C5: descriptor for window.open matches stock Chrome exactly (no fingerprint divergence)', async ({ contextFactory, server }) => {
@@ -117,12 +141,14 @@ it('C5: descriptor for window.open matches stock Chrome exactly (no fingerprint 
   await shimContext.close();
 });
 
-it('C5: _isSapotoElectronBridge rejects fake electronAPI shapes — falls through to native', async ({ context, server }) => {
+it('C5: fake electronAPI shapes do not block console-marker capture', async ({ context, server }) => {
   // Hostile page-defined electronAPI where requestPrintCapture is a string,
-  // not a function. The structural check (typeof === "function") must reject
-  // this so the page can't disable the shim by defining a global.
+  // not a function. C5 must still emit the console marker in direct-Chrome
+  // mode; the fake bridge shape only prevents the optional Electron preload
+  // callback from firing.
   await context.addInitScript({
     content: `(() => {
+      window.__fakeBridgeCallCount = 0;
       window.electronAPI = { requestPrintCapture: 'not a function' };
     })();`,
   });
@@ -133,17 +159,20 @@ it('C5: _isSapotoElectronBridge rejects fake electronAPI shapes — falls throug
   page.on('console', msg => consoleMessages.push(msg.text()));
 
   await page.goto(server.EMPTY_PAGE);
-  // window.open should fall through to native (which Playwright handles
-  // as a popup event) — therefore NOT emit the background-open marker.
-  const popupPromise = page.waitForEvent('popup', { timeout: 2000 }).catch(() => null);
-  await page.evaluate(() => {
-    window.open('https://example.com/statement.pdf', '_blank');
+  const result = await page.evaluate(() => {
+    const opened = window.open('https://example.com/statement.pdf', '_blank');
+    return {
+      returnedNull: opened === null,
+      fakeBridgeCallCount: (window as any).__fakeBridgeCallCount,
+    };
   });
-  await popupPromise; // either fired (native) or timed out; both are OK
   await page.waitForTimeout(100);
 
   const marker = consoleMessages.find(t => t.includes('[FocusShim]') && t.includes('background-open'));
-  expect(marker).toBeFalsy();
+  expect(result.returnedNull).toBe(true);
+  expect(result.fakeBridgeCallCount).toBe(0);
+  expect(marker).toBeTruthy();
+  expect(marker).toContain('https://example.com/statement.pdf');
 });
 
 it('C5: empty-URL window.open(\'\', \'_blank\') — native passthrough (print-receipt proxy case)', async ({ context, server }) => {
@@ -217,6 +246,43 @@ it('C5: non-download URL with _blank target — native passthrough', async ({ co
   await page.waitForTimeout(100);
 
   const marker = consoleMessages.find(t => t.includes('[FocusShim]') && t.includes('background-open'));
+  expect(marker).toBeFalsy();
+});
+
+it('C5: non-capturable document-looking schemes stay native', async ({ context, server }) => {
+  await context.addInitScript({
+    content: `(() => {
+      const originalOpen = window.open.bind(window);
+      window.__nativeOpenCalls = [];
+      window.open = function(url, target, features) {
+        window.__nativeOpenCalls.push({ url: String(url), target: String(target), features });
+        return { __nativeOpenSentinel: true };
+      };
+      window.__restoreNativeOpen = () => { window.open = originalOpen; };
+    })();`,
+  });
+  await context.addInitScript({ content: BRIDGE_SCRIPT });
+
+  const page = await context.newPage();
+  const consoleMessages: string[] = [];
+  page.on('console', msg => consoleMessages.push(msg.text()));
+
+  await page.goto(server.EMPTY_PAGE);
+  const dataResult = await page.evaluate(() => {
+    const w = window.open('data:application/pdf;base64,JVBERi0xLjQK.pdf', '_blank');
+    return {
+      returnedNativeSentinel: !!(w as any)?.__nativeOpenSentinel,
+      nativeOpenCalls: (window as any).__nativeOpenCalls,
+    };
+  });
+  await page.waitForTimeout(100);
+
+  const marker = consoleMessages.find(t => t.includes('[FocusShim]') && t.includes('background-open'));
+  expect(dataResult.returnedNativeSentinel).toBe(true);
+  expect(dataResult.nativeOpenCalls).toEqual([{
+    url: 'data:application/pdf;base64,JVBERi0xLjQK.pdf',
+    target: '_blank',
+  }]);
   expect(marker).toBeFalsy();
 });
 
