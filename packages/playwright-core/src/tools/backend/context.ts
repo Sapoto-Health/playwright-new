@@ -328,7 +328,7 @@ export class Context {
       this._startPageVideo(page).catch(() => {});
       return;
     }
-    const overlayScript = createAgentSessionOverlayScript({ statusText: 'MCP' });
+    const overlayScript = createAgentSessionOverlayScript();
     const tab = new Tab(this, page, tab => this._onPageClosed(tab), overlayScript.content, overlayScript.controlToken);
     this._tabs.push(tab);
     if (!this._currentTab)
