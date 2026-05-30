@@ -14,39 +14,40 @@
  * limitations under the License.
  */
 
+import { createGuid } from '@utils/crypto';
+
 export type AgentSessionOverlayOptions = {
   statusText?: string;
+};
+
+export type AgentSessionOverlayScript = {
+  content: string;
+  controlToken: string;
 };
 
 export const AGENT_SESSION_OVERLAY_HOST = 'sapoto-mcp-agent-session-overlay';
 export const AGENT_SESSION_OVERLAY_GLOBAL = '__sapotoMcpAgentSessionOverlayV1';
 
-export function buildOverlayScript(options: AgentSessionOverlayOptions = {}): string {
+export function createAgentSessionOverlayScript(options: AgentSessionOverlayOptions = {}): AgentSessionOverlayScript {
+  const controlToken = createGuid();
+  return {
+    content: buildOverlayScript(options, controlToken),
+    controlToken,
+  };
+}
+
+export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, controlToken = createGuid()): string {
   const statusText = options.statusText ?? '';
   return `(() => {
   const HOST_TAG = ${JSON.stringify(AGENT_SESSION_OVERLAY_HOST)};
   const GLOBAL_NAME = ${JSON.stringify(AGENT_SESSION_OVERLAY_GLOBAL)};
-  const BACKGROUND_MARKER = '__sapoto_bg=V1:';
+  const CONTROL_TOKEN = ${JSON.stringify(controlToken)};
   const STATUS_TEXT = ${JSON.stringify(statusText)};
 
   try {
     if (window !== window.top)
       return;
   } catch (_) {
-    return;
-  }
-
-  try {
-    if (String(window.location && window.location.href || '').includes(BACKGROUND_MARKER))
-      return;
-  } catch (_) {
-    return;
-  }
-
-  const existing = window[GLOBAL_NAME];
-  if (existing && typeof existing.ensure === 'function') {
-    existing.ensure();
-    existing.show();
     return;
   }
 
@@ -233,33 +234,48 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}): st
     }
   };
 
+  const isAuthorized = token => token === CONTROL_TOKEN;
+
   const api = {
     ensure: () => appendHost(),
-    hide: () => {
+    hide: token => {
+      if (!isAuthorized(token))
+        return false;
       hidden = true;
       restoreHostStyles();
+      return true;
     },
-    show: () => {
+    show: token => {
+      if (!isAuthorized(token))
+        return false;
       hidden = false;
       appendHost();
+      return true;
     },
-    remove: () => {
+    remove: token => {
+      if (!isAuthorized(token))
+        return false;
       removed = true;
       try { treeObserver && treeObserver.disconnect(); } catch (_) {}
       try { hostObserver && hostObserver.disconnect(); } catch (_) {}
       try { host && host.remove(); } catch (_) {}
+      return true;
     },
     stopRequested: () => stopRequested,
-    consumeStopRequested: () => {
+    consumeStopRequested: token => {
+      if (!isAuthorized(token))
+        return false;
       const value = stopRequested;
       stopRequested = false;
       return value;
     },
   };
 
+  try { Object.freeze(api); } catch (_) {}
+
   try {
     Object.defineProperty(window, GLOBAL_NAME, {
-      configurable: true,
+      configurable: false,
       enumerable: false,
       writable: false,
       value: api,

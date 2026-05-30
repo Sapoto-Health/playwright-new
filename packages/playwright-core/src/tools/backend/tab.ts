@@ -108,16 +108,18 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private _consoleLog: LogFile;
   private _disposables: Disposable[];
   private _agentSessionOverlayScript: string | undefined;
+  private _agentSessionOverlayControlToken: string | undefined;
   readonly actionTimeoutOptions: { timeout?: number; };
   readonly navigationTimeoutOptions: { timeout?: number; };
   readonly expectTimeoutOptions: { timeout?: number; };
 
-  constructor(context: Context, page: playwright.Page, onPageClose: (tab: Tab) => void, agentSessionOverlayScript?: string) {
+  constructor(context: Context, page: playwright.Page, onPageClose: (tab: Tab) => void, agentSessionOverlayScript?: string, agentSessionOverlayControlToken?: string) {
     super();
     this.context = context;
     this.page = page;
     this._onPageClose = onPageClose;
     this._agentSessionOverlayScript = agentSessionOverlayScript;
+    this._agentSessionOverlayControlToken = agentSessionOverlayControlToken;
     const p = page;
     this._disposables = [
       eventsHelper.addEventListener(p, 'console', event => this._handleConsoleMessage(messageToConsoleMessage(event))),
@@ -233,14 +235,29 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private async _evaluateAgentSessionOverlayHelper(method: 'hide' | 'show' | 'remove') {
     try {
       await this._initializedPromise;
-      await this.page.evaluate(({ globalName, method }) => {
-        const helper = Reflect.get(window, globalName);
+      await this.page.evaluate(({ globalName, method, controlToken }) => {
+        const helper = (window as unknown as Record<string, {
+          hide?: (controlToken: string | undefined) => unknown;
+          show?: (controlToken: string | undefined) => unknown;
+          remove?: (controlToken: string | undefined) => unknown;
+        } | undefined>)[globalName];
         if (!helper || typeof helper !== 'object')
           return;
-        const methodValue = Reflect.get(helper, method);
-        if (typeof methodValue === 'function')
-          methodValue.call(helper);
-      }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, method });
+        switch (method) {
+          case 'hide':
+            if (typeof helper.hide === 'function')
+              helper.hide(controlToken);
+            break;
+          case 'show':
+            if (typeof helper.show === 'function')
+              helper.show(controlToken);
+            break;
+          case 'remove':
+            if (typeof helper.remove === 'function')
+              helper.remove(controlToken);
+            break;
+        }
+      }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, method, controlToken: this._agentSessionOverlayControlToken });
     } catch (e) {
       debug('pw:tools:error')(e);
     }

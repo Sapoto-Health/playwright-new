@@ -127,6 +127,78 @@ test('browser_take_screenshot hides the agent-session overlay during capture', a
   expect((await overlayState(client)).display).toBe('block');
 });
 
+test('agent-session overlay host controls do not expose the control token to monkeypatched page built-ins', async ({ startClient }, testInfo) => {
+  const outputDir = testInfo.outputPath('output');
+  const { client } = await startClient({ config: { outputDir } });
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: {
+      url: 'data:text/html,<!doctype html><html><body style="margin:0;background:#000"><main style="height:100vh"></main></body></html>',
+    },
+  });
+  expect((await overlayState(client)).exists).toBe(true);
+
+  await client.callTool({
+    name: 'browser_evaluate',
+    arguments: {
+      function: `() => {
+        const stolenTokens = [];
+        const wrappedHostControls = new WeakSet();
+        window.__stolenOverlayControlTokens = stolenTokens;
+
+        const reflectGet = Reflect.get;
+        Reflect.get = function(target, propertyKey, receiver) {
+          const value = reflectGet.apply(this, [target, propertyKey, receiver]);
+          if ((propertyKey === 'hide' || propertyKey === 'show' || propertyKey === 'remove') && typeof value === 'function') {
+            const wrapped = function(...args) {
+              for (const arg of args) {
+                if (typeof arg === 'string')
+                  stolenTokens.push(arg);
+              }
+              return value.apply(this, args);
+            };
+            wrappedHostControls.add(wrapped);
+            return wrapped;
+          }
+          return value;
+        };
+
+        const functionCall = Function.prototype.call;
+        Function.prototype.call = function(thisArg, ...args) {
+          if (wrappedHostControls.has(this)) {
+            for (const arg of args) {
+              if (typeof arg === 'string')
+                stolenTokens.push(arg);
+            }
+          }
+          return functionCall.apply(this, [thisArg, ...args]);
+        };
+
+        window.__restoreOverlayBuiltins = () => {
+          Reflect.get = reflectGet;
+          Function.prototype.call = functionCall;
+        };
+      }`,
+    },
+  });
+
+  await client.callTool({ name: 'browser_take_screenshot' });
+
+  const stolenTokensResponse = await client.callTool({
+    name: 'browser_evaluate',
+    arguments: {
+      function: `() => {
+        const stolenTokens = window.__stolenOverlayControlTokens;
+        window.__restoreOverlayBuiltins?.();
+        return stolenTokens;
+      }`,
+    },
+  });
+  expect(JSON.parse(parseResponse(stolenTokensResponse, test.info().outputPath()).result!)).toEqual([]);
+  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect((await overlayState(client)).display).toBe('block');
+});
+
 test('browser_take_screenshot first operation on a fresh tab does not capture the agent-session overlay', async ({ startClient }, testInfo) => {
   const outputDir = testInfo.outputPath('output');
   const { client } = await startClient({ config: { outputDir } });
