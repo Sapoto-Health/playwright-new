@@ -388,6 +388,159 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
       return false;
     };
 
+    const _safeText = function(value, maxLength) {
+      try {
+        const text = String(value || '').replace(/\\s+/g, ' ').trim();
+        if (!text) return '';
+        return text.length > maxLength ? text.slice(0, maxLength) : text;
+      } catch (_) {
+        return '';
+      }
+    };
+
+    const _closestElement = function(el, selector) {
+      try {
+        if (!el || typeof el.closest !== 'function') return null;
+        return el.closest(selector);
+      } catch (_) {
+        return null;
+      }
+    };
+
+    const _elementText = function(el) {
+      try {
+        return _safeText(
+          (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) ||
+          el.innerText ||
+          el.textContent ||
+          '',
+          120
+        );
+      } catch (_) {
+        return '';
+      }
+    };
+
+    const _describeElementPath = function(el, event) {
+      const summary = {};
+      try {
+        if (!el || !el.tagName) return summary;
+        summary.tag = _safeText(el.tagName, 32);
+        if (el.getAttribute) {
+          summary.type = _safeText(el.getAttribute('type'), 32);
+          summary.role = _safeText(el.getAttribute('role'), 64);
+          summary.aria = _safeText(el.getAttribute('aria-label'), 100);
+        }
+        summary.text = _elementText(el);
+        if (el instanceof HTMLButtonElement)
+          summary.buttonType = _safeText(el.type, 32);
+
+        const anchor = el instanceof HTMLAnchorElement ? el : _closestElement(el, 'a');
+        if (anchor) {
+          summary.anchorHref = sanitizeUrl(anchor.href || anchor.getAttribute('href') || '');
+          summary.anchorTarget = _safeText(anchor.target || anchor.getAttribute('target'), 64);
+          summary.anchorDownload = !!anchor.download;
+          summary.anchorLooksDownload = _urlLooksLikeDownload(anchor.href || anchor.getAttribute('href') || '');
+        }
+
+        const form = el instanceof HTMLFormElement ? el : _closestElement(el, 'form');
+        if (form) {
+          summary.formAction = sanitizeUrl(form.action || form.getAttribute('action') || '');
+          summary.formTarget = _safeText(form.target || form.getAttribute('target'), 64);
+          summary.formMethod = _safeText(form.method || form.getAttribute('method'), 16);
+          summary.formLooksDownload = _urlLooksLikeDownload(form.action || form.getAttribute('action') || '');
+        }
+
+        if (event) {
+          summary.isTrusted = !!event.isTrusted;
+          summary.defaultPrevented = !!event.defaultPrevented;
+          try {
+            const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+            summary.pathDepth = Array.isArray(path) ? path.length : 0;
+          } catch (_) {}
+        }
+        summary.pageUrl = sanitizeUrl(location.href);
+        summary.top = window === window.top;
+      } catch (_) {}
+      return summary;
+    };
+
+    const _shouldLogDomSummary = function(summary) {
+      try {
+        const haystack = [
+          summary.text,
+          summary.aria,
+          summary.role,
+          summary.anchorHref,
+          summary.formAction,
+        ].join(' ').toLowerCase();
+        return !!(
+          summary.anchorTarget ||
+          summary.formTarget ||
+          summary.anchorDownload ||
+          summary.anchorLooksDownload ||
+          summary.formLooksDownload ||
+          /statement|document|download|pdf|print|export/.test(haystack)
+        );
+      } catch (_) {
+        return true;
+      }
+    };
+
+    const _emitDomDiagnostic = function(kind, summary) {
+      try {
+        if (!_shouldLogDomSummary(summary)) return;
+        console.debug('[FocusShim] ' + kind + ' ' + JSON.stringify(summary));
+      } catch (_) {}
+    };
+
+    try {
+      document.addEventListener('click', function(event) {
+        try {
+          const target = event && event.target;
+          if (!(target instanceof Element)) return;
+          _emitDomDiagnostic('dom-click', _describeElementPath(target, event));
+        } catch (_) {}
+      }, true);
+    } catch (_) {}
+
+    try {
+      const proto = HTMLAnchorElement && HTMLAnchorElement.prototype;
+      const nativeClick = proto && proto.click;
+      if (typeof nativeClick === 'function') {
+        proto.click = function() {
+          try { _emitDomDiagnostic('anchor-click', _describeElementPath(this, null)); } catch (_) {}
+          return nativeClick.apply(this, arguments);
+        };
+      }
+    } catch (_) {}
+
+    try {
+      const proto = HTMLFormElement && HTMLFormElement.prototype;
+      const nativeSubmit = proto && proto.submit;
+      if (typeof nativeSubmit === 'function') {
+        proto.submit = function() {
+          try { _emitDomDiagnostic('form-submit', _describeElementPath(this, null)); } catch (_) {}
+          return nativeSubmit.apply(this, arguments);
+        };
+      }
+      const nativeRequestSubmit = proto && proto.requestSubmit;
+      if (typeof nativeRequestSubmit === 'function') {
+        proto.requestSubmit = function(submitter) {
+          try {
+            const summary = _describeElementPath(this, null);
+            if (submitter && submitter.tagName) {
+              summary.submitterTag = _safeText(submitter.tagName, 32);
+              if (submitter.getAttribute)
+                summary.submitterType = _safeText(submitter.getAttribute('type'), 32);
+            }
+            _emitDomDiagnostic('form-request-submit', summary);
+          } catch (_) {}
+          return nativeRequestSubmit.apply(this, arguments);
+        };
+      }
+    } catch (_) {}
+
     // Forward to the print capture bridge with the background-target marker
     // suffix. The marker token is the load-bearing wire contract: the
     // orchestrator's backgroundOpenBridge listener (backgroundOpenBridge.ts)
@@ -429,6 +582,40 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
       return window.open.bind(window);
     })();
 
+    const _describeOpen = function(label) {
+      try {
+        const d = Object.getOwnPropertyDescriptor(window, 'open');
+        const valueIsShim = !!d && typeof d.value === 'function' && d.value === _shimOpen;
+        console.debug(
+          '[FocusShim] health label=' + label +
+          ' own=' + (!!d) +
+          ' valueIsShim=' + valueIsShim +
+          ' writable=' + (!!d && d.writable === true) +
+          ' configurable=' + (!!d && d.configurable === true) +
+          ' enumerable=' + (!!d && d.enumerable === true) +
+          ' at=' + sanitizeUrl(location.href)
+        );
+      } catch (_) {}
+    };
+
+    const _scheduleOverwriteProbe = function(delayMs) {
+      try {
+        setTimeout(() => {
+          try {
+            if (window.open !== _shimOpen) {
+              const d = Object.getOwnPropertyDescriptor(window, 'open');
+              console.debug(
+                '[FocusShim] open overwritten afterMs=' + delayMs +
+                ' own=' + (!!d) +
+                ' type=' + (d && typeof d.value) +
+                ' at=' + sanitizeUrl(location.href)
+              );
+            }
+          } catch (_) {}
+        }, delayMs);
+      } catch (_) {}
+    };
+
     const _shimOpen = function open(url, target, features) {
       const u = (url == null ? '' : String(url));
       const t = (target == null ? '' : String(target));
@@ -458,6 +645,7 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
           try { console.debug('[FocusShim] → native (invalid URL)'); } catch (_) {}
           return _nativeOpen(url, target, features);
         }
+        try { console.debug('[FocusShim] suppressing background-open url=' + sanitizeUrl(absoluteUrl) + ' target=' + (t || '(empty)') + ' reason=download_heuristic'); } catch (_) {}
         _emitBackgroundOpen(absoluteUrl);
         return null;
       }
@@ -482,11 +670,23 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
         configurable: true,
         enumerable: true,
       });
+      _describeOpen('installed');
+      _scheduleOverwriteProbe(0);
+      _scheduleOverwriteProbe(250);
+      _scheduleOverwriteProbe(1000);
+      _scheduleOverwriteProbe(5000);
     } catch (_) {
       // Fallback: plain assignment. Some hardened browsers may reject
       // defineProperty on built-ins; accept the override risk.
       try { console.debug('[FocusShim] defineProperty failed, falling back to assignment'); } catch (_) {}
-      try { (window).open = _shimOpen; } catch (_) { /* really stuck */ }
+      try {
+        (window).open = _shimOpen;
+        _describeOpen('assignment-fallback');
+        _scheduleOverwriteProbe(0);
+        _scheduleOverwriteProbe(250);
+        _scheduleOverwriteProbe(1000);
+        _scheduleOverwriteProbe(5000);
+      } catch (_) { /* really stuck */ }
     }
   } catch (e) {
     // Diagnostic-only catch. C3 / C4 already ran outside this try.
