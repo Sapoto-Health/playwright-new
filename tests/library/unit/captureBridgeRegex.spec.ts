@@ -26,6 +26,7 @@
 
 import { test as it, expect } from '@playwright/test';
 import {
+  BACKGROUND_OPEN_SCHEME_RE,
   DOWNLOAD_URL_RE,
   DOWNLOAD_PATH_RE,
   SELF_TARGET_RE,
@@ -72,6 +73,22 @@ it('DOWNLOAD_URL_RE rejects bare HTTPS pages without download extensions', () =>
 it('DOWNLOAD_URL_RE is case-insensitive', () => {
   expect(DOWNLOAD_URL_RE.test('https://example.com/STATEMENT.PDF')).toBe(true);
   expect(DOWNLOAD_URL_RE.test('https://example.com/data.CSV')).toBe(true);
+});
+
+// ----------------------------------------------------------------------
+// BACKGROUND_OPEN_SCHEME_RE
+// ----------------------------------------------------------------------
+
+it('BACKGROUND_OPEN_SCHEME_RE accepts host-capturable web and blob schemes', () => {
+  expect(BACKGROUND_OPEN_SCHEME_RE.test('https:')).toBe(true);
+  expect(BACKGROUND_OPEN_SCHEME_RE.test('http:')).toBe(true);
+  expect(BACKGROUND_OPEN_SCHEME_RE.test('blob:')).toBe(true);
+});
+
+it('BACKGROUND_OPEN_SCHEME_RE rejects schemes the host bridge intentionally refuses', () => {
+  expect(BACKGROUND_OPEN_SCHEME_RE.test('data:')).toBe(false);
+  expect(BACKGROUND_OPEN_SCHEME_RE.test('file:')).toBe(false);
+  expect(BACKGROUND_OPEN_SCHEME_RE.test('javascript:')).toBe(false);
 });
 
 // ----------------------------------------------------------------------
