@@ -1,0 +1,220 @@
+/**
+ * Copyright (c) Microsoft Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { contextTest as it, expect } from '../config/browserTest';
+import { AGENT_SESSION_OVERLAY_GLOBAL, buildOverlayScript, createAgentSessionOverlayScript } from '../../packages/playwright-core/src/tools/backend/agentSessionOverlay';
+
+const OVERLAY_SCRIPT = buildOverlayScript({ statusText: 'MCP' });
+const HOST_SELECTOR = 'sapoto-mcp-agent-session-overlay';
+
+it('agent-session overlay installs one aria-hidden host and hides in print media', async ({ context, server }) => {
+  await context.addInitScript({ content: OVERLAY_SCRIPT });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+
+  expect(await page.locator(HOST_SELECTOR).evaluate(host => ({
+    ariaHidden: host.getAttribute('aria-hidden'),
+    pointerEvents: getComputedStyle(host).pointerEvents,
+    zIndex: getComputedStyle(host).zIndex,
+    shadowRootIsClosed: !(host as HTMLElement).shadowRoot,
+  }))).toEqual({
+    ariaHidden: 'true',
+    pointerEvents: 'none',
+    zIndex: '2147483647',
+    shadowRootIsClosed: true,
+  });
+
+  await page.emulateMedia({ media: 'print' });
+  expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).display)).toBe('none');
+});
+
+it('agent-session overlay installs on visible urls containing the background marker text', async ({ context }) => {
+  await context.addInitScript({ content: OVERLAY_SCRIPT });
+  const page = await context.newPage();
+  await page.goto('data:text/html,<body>background</body>#__sapoto_bg=V1:test');
+
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+});
+
+it('agent-session overlay rejects hostile page control attempts', async ({ context, server }) => {
+  await context.addInitScript({ content: OVERLAY_SCRIPT });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+
+  const result = await page.evaluate(globalName => {
+    const helper = (window as any)[globalName];
+    const descriptorBefore = Object.getOwnPropertyDescriptor(window, globalName);
+    const hideResult = helper.hide();
+    const removeResult = helper.remove();
+    const consumeResult = helper.consumeStopRequested();
+    let redefineError = false;
+    try {
+      Object.defineProperty(window, globalName, { value: { removed: true } });
+    } catch (_) {
+      redefineError = true;
+    }
+    try {
+      (window as any)[globalName] = { removed: true };
+    } catch (_) {
+    }
+    return {
+      configurable: descriptorBefore?.configurable,
+      enumerable: descriptorBefore?.enumerable,
+      writable: descriptorBefore?.writable,
+      frozen: Object.isFrozen(helper),
+      hideResult,
+      removeResult,
+      consumeResult,
+      redefineError,
+      globalStillInstalled: (window as any)[globalName] === helper,
+    };
+  }, AGENT_SESSION_OVERLAY_GLOBAL);
+
+  expect(result).toEqual({
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    frozen: true,
+    hideResult: false,
+    removeResult: false,
+    consumeResult: false,
+    redefineError: true,
+    globalStillInstalled: true,
+  });
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).display)).toBe('block');
+});
+
+it('agent-session overlay overwrites configurable page-owned helper without leaking token', async ({ context, server }) => {
+  const { content, controlToken } = createAgentSessionOverlayScript({ statusText: 'MCP' });
+  await context.addInitScript({ content: `
+    (() => {
+      const stolenTokens = [];
+      const helper = {
+        ensure: token => stolenTokens.push(token),
+        show: token => stolenTokens.push(token),
+      };
+      window.__stolenOverlayTokens = stolenTokens;
+      window.__pageOwnedOverlayHelper = helper;
+      Object.defineProperty(window, ${JSON.stringify(AGENT_SESSION_OVERLAY_GLOBAL)}, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: helper,
+      });
+    })();
+  ${content}` });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+
+  const result = await page.evaluate(({ globalName, controlToken }) => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, globalName);
+    return {
+      stolenTokens: (window as any).__stolenOverlayTokens,
+      leakedKnownToken: (window as any).__stolenOverlayTokens.includes(controlToken),
+      overwritten: (window as any)[globalName] !== (window as any).__pageOwnedOverlayHelper,
+      descriptor: {
+        configurable: descriptor?.configurable,
+        enumerable: descriptor?.enumerable,
+        writable: descriptor?.writable,
+      },
+    };
+  }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, controlToken });
+
+  expect(result.stolenTokens).toEqual([]);
+  expect(result.leakedKnownToken).toBe(false);
+  expect(result.overwritten).toBe(true);
+  expect(result.descriptor).toEqual(expect.objectContaining({
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  }));
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+});
+
+it('agent-session overlay does not leak token when non-configurable page-owned helper blocks overwrite', async ({ context, server }) => {
+  const { content, controlToken } = createAgentSessionOverlayScript({ statusText: 'MCP' });
+  await context.addInitScript({ content: `
+    (() => {
+      const stolenTokens = [];
+      const helper = {
+        ensure: token => stolenTokens.push(token),
+        show: token => stolenTokens.push(token),
+      };
+      window.__stolenOverlayTokens = stolenTokens;
+      window.__pageOwnedOverlayHelper = helper;
+      Object.defineProperty(window, ${JSON.stringify(AGENT_SESSION_OVERLAY_GLOBAL)}, {
+        configurable: false,
+        enumerable: true,
+        writable: false,
+        value: helper,
+      });
+    })();
+  ${content}` });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+
+  const result = await page.evaluate(({ globalName, controlToken }) => ({
+    stolenTokens: (window as any).__stolenOverlayTokens,
+    leakedKnownToken: (window as any).__stolenOverlayTokens.includes(controlToken),
+    stillPageOwned: (window as any)[globalName] === (window as any).__pageOwnedOverlayHelper,
+  }), { globalName: AGENT_SESSION_OVERLAY_GLOBAL, controlToken });
+
+  expect(result).toEqual({
+    stolenTokens: [],
+    leakedKnownToken: false,
+    stillPageOwned: true,
+  });
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+});
+
+it('agent-session overlay stop affordance fires while host pointer-events stays none', async ({ context, server }) => {
+  await context.addInitScript({ content: OVERLAY_SCRIPT });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+
+  await page.evaluate(() => {
+    (window as any).__stopCallbackCount = 0;
+    (window as any).__stopEventCount = 0;
+    (window as any).__sapotoStopRequested = () => (window as any).__stopCallbackCount++;
+    window.addEventListener('__sapotoMcpStopRequested', () => (window as any).__stopEventCount++);
+  });
+
+  const hostState = await page.locator(HOST_SELECTOR).evaluate(host => ({
+    pointerEvents: getComputedStyle(host).pointerEvents,
+    display: getComputedStyle(host).display,
+  }));
+  expect(hostState).toEqual({
+    pointerEvents: 'none',
+    display: 'block',
+  });
+
+  const stopButtonPoint = await page.evaluate(() => ({
+    x: window.innerWidth / 2,
+    y: window.innerHeight - 27,
+  }));
+  await page.mouse.click(stopButtonPoint.x, stopButtonPoint.y);
+  await page.mouse.click(stopButtonPoint.x, stopButtonPoint.y);
+
+  expect(await page.evaluate(() => ({
+    callbackCount: (window as any).__stopCallbackCount,
+    eventCount: (window as any).__stopEventCount,
+  }))).toEqual({
+    callbackCount: 2,
+    eventCount: 2,
+  });
+  expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).pointerEvents)).toBe('none');
+});

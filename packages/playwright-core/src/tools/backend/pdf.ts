@@ -35,7 +35,15 @@ const pdf = defineTabTool({
   },
 
   handle: async (tab, params, response) => {
-    const data = await tab.page.pdf();
+    let data: Buffer | undefined;
+    await tab.hideAgentSessionOverlayForCapture();
+    try {
+      data = await tab.page.pdf();
+    } finally {
+      await tab.showAgentSessionOverlayAfterCapture();
+    }
+    if (!data)
+      throw new Error('PDF generation failed.');
     const result = await response.resolveClientFile({ prefix: 'page', ext: 'pdf', suggestedFilename: params.filename }, 'Page as pdf');
     await response.addFileResult(result, data);
     response.addCode(`await page.pdf(${formatObject({ path: result.relativeName })});`);
