@@ -56,7 +56,15 @@ const screenshot = defineTabTool({
 
     const screenshotTargetLabel = params.target ? params.element || 'element' : (params.fullPage ? 'full page' : 'viewport');
     const target = params.target ? await tab.targetLocator({ element: params.element, target: params.target }) : null;
-    const data = target ? await target.locator.screenshot(options) : await tab.page.screenshot(options);
+    let data: Buffer | undefined;
+    await tab.hideAgentSessionOverlayForCapture();
+    try {
+      data = target ? await target.locator.screenshot(options) : await tab.page.screenshot(options);
+    } finally {
+      await tab.showAgentSessionOverlayAfterCapture();
+    }
+    if (!data)
+      throw new Error('Screenshot failed.');
 
     const resolvedFile = await response.resolveClientFile({ prefix: target ? 'element' : 'page', ext: fileType, suggestedFilename: params.filename }, `Screenshot of ${screenshotTargetLabel}`);
 
@@ -201,6 +209,7 @@ const ocrScreenshot = defineTabTool({
 
     let fixedSnapshots: FixedElementSnapshot[] = [];
     try {
+      await tab.hideAgentSessionOverlayForCapture();
       if (hideFixed)
         fixedSnapshots = await hideFixedElements(tab.page);
 
@@ -257,6 +266,7 @@ const ocrScreenshot = defineTabTool({
     } finally {
       if (hideFixed)
         await restoreFixedElements(tab.page, fixedSnapshots);
+      await tab.showAgentSessionOverlayAfterCapture();
     }
   },
 });
