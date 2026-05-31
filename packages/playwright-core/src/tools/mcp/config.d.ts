@@ -248,6 +248,7 @@ export type Config = {
    * from `browser_tabs`. Channel-only; not exposed in public docs/types.
    */
   captureBridge?: boolean;
+  windowOpenCaptureMode?: 'off' | 'passive' | 'active';
 
   /**
    * Sapoto Tracer #1155 (Unit G-ops): when true, exclude embedder-internal

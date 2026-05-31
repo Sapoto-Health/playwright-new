@@ -36,11 +36,16 @@
  */
 
 import { contextTest as it, expect } from '../config/browserTest';
-import { buildCaptureBridgeInitScript } from '../../packages/playwright-core/src/tools/backend/captureBridgeInitScript';
+import { buildArmCaptureBridgeInitScript, buildCaptureBridgeInitScript } from '../../packages/playwright-core/src/tools/backend/captureBridgeInitScript';
 
 it.skip(({ browserName }) => browserName !== 'chromium', 'Chromium-only — focus-steal lives on chromium');
 
 const BRIDGE_SCRIPT = buildCaptureBridgeInitScript({ captureBridge: true });
+const PASSIVE_WINDOW_OPEN_SCRIPT = buildCaptureBridgeInitScript({
+  captureBridge: false,
+  windowOpenCaptureMode: 'passive',
+});
+const ARM_WINDOW_OPEN_SCRIPT = buildArmCaptureBridgeInitScript();
 
 it('C5: emits [FocusShim] background-open marker when bridge present and URL looks like a download', async ({ context, server }) => {
   await context.addInitScript({
@@ -227,7 +232,61 @@ it('C5: self-target window.open(url, \'_self\') — native passthrough, no backg
   expect(marker).toBeFalsy();
 });
 
-it('C5: non-download URL with _blank target — native passthrough', async ({ context, server }) => {
+it('C5: passive saved reference delegates, then active arming captures through the same reference', async ({ context, server }) => {
+  await context.addInitScript({ content: PASSIVE_WINDOW_OPEN_SCRIPT });
+
+  const page = await context.newPage();
+  const consoleMessages: string[] = [];
+  page.on('console', msg => consoleMessages.push(msg.text()));
+
+  await page.goto(server.EMPTY_PAGE);
+  const passiveResult = await page.evaluate(() => {
+    (window as any).__savedOpen = window.open;
+    const opened = (window as any).__savedOpen('about:blank', '_blank');
+    try { opened?.close?.(); } catch (_) {}
+    return opened === null ? 'null' : typeof opened;
+  });
+  expect(passiveResult).not.toBe('null');
+  expect(consoleMessages.some(t => t.includes('[FocusShim] background-open'))).toBe(false);
+
+  const armed = await page.evaluate(ARM_WINDOW_OPEN_SCRIPT);
+  expect(armed).toBe(true);
+
+  const activeResult = await page.evaluate(() => {
+    const opened = (window as any).__savedOpen('https://example.com/account', '_blank');
+    return opened === null;
+  });
+  expect(activeResult).toBe(true);
+  const marker = consoleMessages.find(t => t.includes('[FocusShim]') && t.includes('background-open https://example.com/account'));
+  expect(marker).toBeTruthy();
+});
+
+it('C5: passive mode is window.open-only and delegates ordinary login popups', async ({ context, server }) => {
+  await context.addInitScript({ content: PASSIVE_WINDOW_OPEN_SCRIPT });
+
+  const page = await context.newPage();
+  const consoleMessages: string[] = [];
+  page.on('console', msg => consoleMessages.push(msg.text()));
+
+  await page.goto(server.EMPTY_PAGE);
+  const result = await page.evaluate(() => {
+    const originalPrint = window.print;
+    const opened = window.open('https://example.com/oauth', '_blank');
+    const openedType = opened === null ? 'null' : typeof opened;
+    try { opened?.close?.(); } catch (_) {}
+    return {
+      openedType,
+      printUnchanged: window.print === originalPrint,
+    };
+  });
+
+  expect(result.openedType).not.toBe('null');
+  expect(result.printUnchanged).toBe(true);
+  expect(consoleMessages.some(t => t.includes('[FocusShim] background-open'))).toBe(false);
+  expect(consoleMessages.some(t => t.includes('[Print Capture]'))).toBe(false);
+});
+
+it('C5: active non-self http(s) URL with _blank target emits background-open marker', async ({ context, server }) => {
   await context.addInitScript({
     content: `(() => { window.electronAPI = { requestPrintCapture: function() {} }; })();`,
   });
@@ -238,15 +297,15 @@ it('C5: non-download URL with _blank target — native passthrough', async ({ co
   page.on('console', msg => consoleMessages.push(msg.text()));
 
   await page.goto(server.EMPTY_PAGE);
-  const popupPromise = page.waitForEvent('popup', { timeout: 2000 }).catch(() => null);
-  await page.evaluate(() => {
-    window.open('https://example.com/account', '_blank');
+  const returnedNull = await page.evaluate(() => {
+    return window.open('https://example.com/account', '_blank') === null;
   });
-  await popupPromise;
   await page.waitForTimeout(100);
 
   const marker = consoleMessages.find(t => t.includes('[FocusShim]') && t.includes('background-open'));
-  expect(marker).toBeFalsy();
+  expect(returnedNull).toBe(true);
+  expect(marker).toBeTruthy();
+  expect(marker).toContain('https://example.com/account');
 });
 
 it('C5: non-capturable document-looking schemes stay native', async ({ context, server }) => {

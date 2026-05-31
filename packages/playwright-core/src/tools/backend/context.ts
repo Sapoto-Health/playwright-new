@@ -27,7 +27,7 @@ import { playwright } from '../../inprocess';
 
 import { Tab } from './tab';
 import { createAgentSessionOverlayScript } from './agentSessionOverlay';
-import { buildCaptureBridgeInitScript, isBackgroundTargetUrl } from './captureBridgeInitScript';
+import { buildArmCaptureBridgeInitScript, buildCaptureBridgeInitScript, isBackgroundTargetUrl } from './captureBridgeInitScript';
 import { isInternalUrl } from './opsFilters';
 
 import type * as playwrightTypes from '../../..';
@@ -78,6 +78,7 @@ export type ContextConfig = {
    * don't surface to the agent. Driven by the CLI flag `--capture-bridge`.
    */
   captureBridge?: boolean;
+  windowOpenCaptureMode?: 'off' | 'passive' | 'active';
 
   /**
    * Sapoto Tracer #1155 (Unit G-ops): when true, exclude embedder-internal
@@ -432,15 +433,28 @@ export class Context {
     // new page when `--capture-bridge` is set. Inert form when disabled
     // (returns an empty IIFE so addInitScript is a no-op rather than a
     // page-detectable absence of the install).
-    if (this.config.captureBridge) {
+    const windowOpenCaptureMode = this.config.windowOpenCaptureMode ?? (this.config.captureBridge ? 'active' : 'off');
+    if (this.config.captureBridge || windowOpenCaptureMode !== 'off') {
       this._disposables.push(await browserContext.addInitScript({
-        content: buildCaptureBridgeInitScript({ captureBridge: true }),
+        content: buildCaptureBridgeInitScript({
+          captureBridge: !!this.config.captureBridge,
+          windowOpenCaptureMode,
+        }),
       }));
     }
 
     for (const page of browserContext.pages())
       this._onPageCreated(page);
     this._disposables.push(eventsHelper.addEventListener(browserContext, 'page', page => this._onPageCreated(page)));
+
+    if (windowOpenCaptureMode === 'active') {
+      const armScript = buildArmCaptureBridgeInitScript();
+      const results = await Promise.allSettled(browserContext.pages().map(page => page.evaluate(armScript)));
+      const failures = results.filter(result => result.status === 'rejected');
+      const unarmed = results.filter(result => result.status === 'fulfilled' && result.value !== true);
+      if (failures.length || unarmed.length)
+        console.warn(`[Sapoto] window.open capture arm incomplete: failures=${failures.length} unarmed=${unarmed.length}`);
+    }
 
     return browserContext;
   }

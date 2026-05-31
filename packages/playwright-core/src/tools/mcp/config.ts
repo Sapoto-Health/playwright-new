@@ -45,6 +45,9 @@ export type CLIOptions = {
   // page and exclude `__sapoto_bg=V1:` background-target URLs from
   // `browser_tabs`. Channel-only; not exposed in public docs/types.
   captureBridge?: boolean;
+  // Sapoto PRD #1176: passive installs a delegating window.open wrapper for
+  // saved-reference protection; active arms broad background-open capture.
+  windowOpenCaptureMode?: 'off' | 'passive' | 'active';
   cdpEndpoint?: string;
   cdpHeader?: Record<string, string>;
   // Sapoto Tracer #1153 (Unit G-stealth): wire-format string[] for the
@@ -376,6 +379,7 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
     },
     allowUnrestrictedFileAccess: cliOptions.allowUnrestrictedFileAccess,
     captureBridge: cliOptions.captureBridge,
+    windowOpenCaptureMode: cliOptions.windowOpenCaptureMode ?? (cliOptions.captureBridge ? 'active' : undefined),
     // Sapoto Tracer #1155 (Unit G-ops): boolean / list channel-only options.
     filterInternalUrls: cliOptions.filterInternalUrls,
     disableDownloads: cliOptions.disableDownloads,
@@ -411,6 +415,8 @@ export function configFromEnv(env?: NodeJS.ProcessEnv): Config & { configFile?: 
   options.caps = commaSeparatedList(e.PLAYWRIGHT_MCP_CAPS);
   // Sapoto Tracer #1154 (Unit I): env-var counterpart of --capture-bridge.
   options.captureBridge = envToBoolean(e.PLAYWRIGHT_MCP_CAPTURE_BRIDGE);
+  if (e.PLAYWRIGHT_MCP_WINDOW_OPEN_CAPTURE_MODE)
+    options.windowOpenCaptureMode = enumParser<'off' | 'passive' | 'active'>('PLAYWRIGHT_MCP_WINDOW_OPEN_CAPTURE_MODE', ['off', 'passive', 'active'], e.PLAYWRIGHT_MCP_WINDOW_OPEN_CAPTURE_MODE);
   options.cdpEndpoint = envToString(e.PLAYWRIGHT_MCP_CDP_ENDPOINT);
   options.cdpHeader = headerParser(envToString(e.PLAYWRIGHT_MCP_CDP_HEADERS));
   // Sapoto Tracer #1153 (Unit G-stealth): env-var counterpart of --cdp-stealth.

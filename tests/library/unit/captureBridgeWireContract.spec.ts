@@ -31,6 +31,8 @@
  */
 
 import { test as it, expect } from '@playwright/test';
+import fs from 'fs';
+import path from 'path';
 import {
   buildCaptureBridgeInitScript,
   BACKGROUND_TARGET_URL_MARKER,
@@ -58,6 +60,23 @@ it('captureBridge=false returns an inert IIFE that omits the markers', () => {
   const src = buildCaptureBridgeInitScript({ captureBridge: false });
   for (const needle of WIRE_CONTRACT_SUBSTRINGS)
     expect(src).not.toContain(needle);
+});
+
+it('captureBridge=true with windowOpenCaptureMode=off keeps print bridge markers', () => {
+  const src = buildCaptureBridgeInitScript({
+    captureBridge: true,
+    windowOpenCaptureMode: 'off',
+  });
+  expect(src).toContain('[DeferredPrint]');
+  expect(src).toContain('[Print Capture]');
+  expect(src).toContain('const __sapotoInstallWindowOpenBridge = false;');
+});
+
+it('MCP command registers windowOpenCaptureMode parser lazily', () => {
+  const programSource = fs.readFileSync(path.join(process.cwd(), 'packages/playwright-core/src/tools/mcp/program.ts'), 'utf8');
+  expect(programSource).toContain(".option('--window-open-capture-mode <mode>'");
+  expect(programSource).toContain("enumParser.bind(null, '--window-open-capture-mode', ['off', 'passive', 'active'])");
+  expect(programSource).not.toContain("enumParser<'off' | 'passive' | 'active'>('--window-open-capture-mode'");
 });
 
 it('IIFE is a self-invoking function expression', () => {
