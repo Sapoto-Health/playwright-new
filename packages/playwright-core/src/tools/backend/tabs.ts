@@ -29,6 +29,7 @@ const browserTabs = defineTool({
       action: z.enum(['list', 'new', 'close', 'select']).describe('Operation to perform'),
       index: z.number().optional().describe('Tab index, used for close/select. If omitted for close, current tab is closed.'),
       url: z.string().optional().describe('URL to navigate to in the new tab, used for new.'),
+      activate: z.boolean().optional().describe('When selecting a tab, also visually activate it with page.bringToFront(). Defaults to false.'),
     }),
     type: 'action',
   },
@@ -55,7 +56,7 @@ const browserTabs = defineTool({
       case 'select': {
         if (params.index === undefined)
           throw new Error('Tab index is required');
-        await context.selectTab(params.index);
+        await context.selectTab(params.index, { activate: params.activate });
         break;
       }
     }

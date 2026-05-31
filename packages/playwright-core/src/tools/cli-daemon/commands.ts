@@ -512,8 +512,11 @@ const tabSelect = declareCommand({
   args: z.object({
     index: numberArg.describe('Tab index'),
   }),
+  options: z.object({
+    activate: z.boolean().optional().describe('Also visually activate the selected tab.'),
+  }),
   toolName: 'browser_tabs',
-  toolParams: ({ index }) => ({ action: 'select', index }),
+  toolParams: ({ index, activate }) => ({ action: 'select', index, activate }),
 });
 
 // Storage

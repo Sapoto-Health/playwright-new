@@ -221,11 +221,12 @@ export class Context {
     return this._currentTab;
   }
 
-  async selectTab(index: number) {
+  async selectTab(index: number, options?: { activate?: boolean }) {
     const tab = this._tabs[index];
     if (!tab)
       throw new Error(`Tab ${index} not found`);
-    await tab.page.bringToFront();
+    if (options?.activate)
+      await tab.page.bringToFront();
     this._currentTab = tab;
     return tab;
   }

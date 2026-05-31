@@ -80,8 +80,8 @@ export type CaptureBridgeOptions = {
 // ----------------------------------------------------------------------
 //
 // DOWNLOAD_URL_RE matches PDF / spreadsheet / document URLs by extension on
-// the URL string itself (so blob:/data:/file:// URLs with a recognisable
-// extension are caught even when their `pathname` is not navigable).
+// the URL string itself. C5 additionally constrains suppression to host-
+// capturable schemes before using this regex.
 //
 // DOWNLOAD_PATH_RE matches portal-typical download endpoints by pathname
 // segment (./download/, ./statement/, ./invoice/, etc.). Used as a fallback
@@ -96,6 +96,7 @@ export type CaptureBridgeOptions = {
 
 export const DOWNLOAD_URL_RE = /\.(pdf|xlsx?|csv|docx?|zip|tsv|ofx|qfx|qif|7z|rtf)(\?|#|$)/i;
 export const DOWNLOAD_PATH_RE = /\/(download|statement|statements|export|invoice|invoices|receipt|receipts|PDFStatement|StatementPDF|getstmt|getStmt|stmt)(?:\/|\.|$)/i;
+export const BACKGROUND_OPEN_SCHEME_RE = /^(?:https?:|blob:)/i;
 export const SELF_TARGET_RE = /^(?:|undefined|_self|_parent|_top)$/i;
 
 // ----------------------------------------------------------------------
@@ -372,32 +373,19 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
     // host.
     const DOWNLOAD_URL_RE = /\\.(pdf|xlsx?|csv|docx?|zip|tsv|ofx|qfx|qif|7z|rtf)(\\?|#|$)/i;
     const DOWNLOAD_PATH_RE = /\\/(download|statement|statements|export|invoice|invoices|receipt|receipts|PDFStatement|StatementPDF|getstmt|getStmt|stmt)(?:\\/|\\.|$)/i;
+    const BACKGROUND_OPEN_SCHEME_RE = /^(?:https?:|blob:)/i;
     const SELF_TARGET_RE = /^(?:|undefined|_self|_parent|_top)$/i;
 
     const _urlLooksLikeDownload = function(href) {
       if (!href) return false;
-      if (DOWNLOAD_URL_RE.test(href)) return true;
       try {
         const u = new URL(href, location.href);
+        if (!BACKGROUND_OPEN_SCHEME_RE.test(u.protocol)) return false;
+        if (u.protocol === 'blob:') return true;
+        if (DOWNLOAD_URL_RE.test(u.href)) return true;
         if (DOWNLOAD_PATH_RE.test(u.pathname)) return true;
       } catch (_) { /* unparseable — give up */ }
       return false;
-    };
-
-    // Structural fingerprint for ADF's preload bridge. Bare
-    // \`typeof window.electronAPI !== 'undefined'\` is too loose — any page
-    // script that sets that global (intentionally or accidentally) would
-    // disable the focus-suppression / download-interception path. We require
-    // the specific function we actually call (requestPrintCapture) so a stub
-    // like { requestPrintCapture: 1 } or a hostile getter that throws can't
-    // masquerade as the bridge. PRD #1154 user-story #28 codifies this.
-    const _isSapotoElectronBridge = function() {
-      try {
-        const api = (window).electronAPI;
-        return !!api && typeof api === 'object' && typeof api.requestPrintCapture === 'function';
-      } catch (_) {
-        return false;
-      }
     };
 
     // Forward to the print capture bridge with the background-target marker
@@ -458,10 +446,11 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
         return _nativeOpen(url, target, features);
       }
 
-      // Download-y URL → emit background-open marker and return null.
-      // Only fire when the orchestrator bridge is structurally present;
-      // otherwise the marker would be a no-op and we'd lose the popup.
-      if (u && _urlLooksLikeDownload(u) && _isSapotoElectronBridge()) {
+      // Download-y/blob URL → emit background-open marker and return null.
+      // This C5 branch exists only in the captureBridge=true IIFE, so the
+      // host-side console marker path is intentionally active even when the
+      // Electron preload bridge is absent (Chrome-direct automation).
+      if (u && _urlLooksLikeDownload(u)) {
         let absoluteUrl = u;
         try {
           absoluteUrl = new URL(u, location.href).href;
