@@ -453,7 +453,7 @@ export class Context {
       const failures = results.filter(result => result.status === 'rejected');
       const unarmed = results.filter(result => result.status === 'fulfilled' && result.value !== true);
       if (failures.length || unarmed.length)
-        console.warn(`[Sapoto] window.open capture arm incomplete: failures=${failures.length} unarmed=${unarmed.length}`);
+        debug('pw:mcp:sapoto')(`window.open capture arm incomplete: failures=${failures.length} unarmed=${unarmed.length}`);
     }
 
     return browserContext;
