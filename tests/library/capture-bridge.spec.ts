@@ -105,7 +105,7 @@ it('capture bridge suppresses Ally-style fetch -> blob -> window.open(_blank)', 
     message.startsWith('[FocusShim] health label=installed ') &&
     message.includes('valueIsShim=true')
   ))).toBe(true);
-  expect(consoleMessages).toContain(`[FocusShim] suppressing background-open url=${blobUrl} target=_blank reason=download_heuristic`);
+  expect(consoleMessages).toContain(`[FocusShim] suppressing background-open url=${blobUrl} target=_blank reason=broad_document_phase`);
   expect(consoleMessages).toContain(`[FocusShim] background-open ${blobUrl}`);
 
   await context.close();
