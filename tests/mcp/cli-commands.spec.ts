@@ -18,8 +18,10 @@ import { test, expect } from './fixtures';
 import { parseCommand } from '../../packages/playwright-core/src/tools/cli-daemon/command';
 import { commands } from '../../packages/playwright-core/src/tools/cli-daemon/commands';
 
+const commandArgs = (args: { _: string[], activate?: string }): Parameters<typeof parseCommand>[1] => args as Parameters<typeof parseCommand>[1];
+
 test('tab-select maps to logical selection by default', async () => {
-  expect(parseCommand(commands['tab-select'], { _: ['tab-select', '1'] })).toEqual({
+  expect(parseCommand(commands['tab-select'], commandArgs({ _: ['tab-select', '1'] }))).toEqual({
     toolName: 'browser_tabs',
     toolParams: {
       action: 'select',
@@ -30,7 +32,7 @@ test('tab-select maps to logical selection by default', async () => {
 });
 
 test('tab-select --activate forwards visual activation request', async () => {
-  expect(parseCommand(commands['tab-select'], { _: ['tab-select', '1'], activate: true as unknown as string })).toEqual({
+  expect(parseCommand(commands['tab-select'], commandArgs({ _: ['tab-select', '1'], activate: true as unknown as string }))).toEqual({
     toolName: 'browser_tabs',
     toolParams: {
       action: 'select',

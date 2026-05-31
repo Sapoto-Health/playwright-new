@@ -73,6 +73,13 @@ export type CaptureBridgeOptions = {
    * via `--capture-bridge` CLI flag.
    */
   captureBridge: boolean;
+  /**
+   * `passive` installs only the window.open wrapper and delegates every call.
+   * `active` arms the wrapper so non-self http(s)/blob opens emit the
+   * background-open marker and return null. Omitted preserves the legacy
+   * boolean contract: captureBridge=true means active, false means off.
+   */
+  windowOpenCaptureMode?: 'off' | 'passive' | 'active';
 };
 
 // ----------------------------------------------------------------------
@@ -171,7 +178,10 @@ export function safeDataValue(value: string): string {
  * intentionally rename anything here.
  */
 export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): string {
-  const captureBridge = !!options.captureBridge;
+  const windowOpenCaptureMode = options.windowOpenCaptureMode ?? (options.captureBridge ? 'active' : 'off');
+  const captureBridge = !!options.captureBridge || windowOpenCaptureMode !== 'off';
+  const activeWindowOpenCapture = windowOpenCaptureMode === 'active';
+  const installPrintBridge = !!options.captureBridge;
 
   // Inert form — addInitScript still installs it but it's a no-op IIFE so
   // page-detectable behaviour is identical to no script at all.
@@ -225,10 +235,14 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
     }
   };
 
+  const __sapotoWindowOpenInitiallyArmed = ${activeWindowOpenCapture ? 'true' : 'false'};
+  const __sapotoInstallPrintBridge = ${installPrintBridge ? 'true' : 'false'};
+  const __sapotoInstallWindowOpenBridge = ${windowOpenCaptureMode !== 'off' ? 'true' : 'false'};
+
   // ============================================================
   // C3 — Deferred window.print() + Path D srcdoc-iframe bridge
   // ============================================================
-  try {
+  if (__sapotoInstallPrintBridge) try {
     const DEFERRED_TIMEOUT_MS = 2000;
     const deferred = function() {
       try { console.debug('[DeferredPrint] window.print() called — deferring for ' + DEFERRED_TIMEOUT_MS + 'ms at ' + sanitizeUrl(window.location.href)); } catch (_) {}
@@ -291,7 +305,7 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
   // deferred handler is left referenced via _c3Deferred so a
   // no-electronAPI page still gets the deferred-print suppression
   // behaviour via the same codepath.
-  try {
+  if (__sapotoInstallPrintBridge) try {
     const _c3Deferred = window.print;
     let _lastPrintTime = 0;
     const _emitPrintMarker = function() {
@@ -376,6 +390,16 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
     const BACKGROUND_OPEN_SCHEME_RE = /^(?:https?:|blob:)/i;
     const SELF_TARGET_RE = /^(?:|undefined|_self|_parent|_top)$/i;
 
+    const _urlLooksBrowserCapturable = function(href) {
+      if (!href) return false;
+      try {
+        const u = new URL(href, location.href);
+        if (!BACKGROUND_OPEN_SCHEME_RE.test(u.protocol)) return false;
+        return true;
+      } catch (_) { /* unparseable — give up */ }
+      return false;
+    };
+
     const _urlLooksLikeDownload = function(href) {
       if (!href) return false;
       try {
@@ -387,6 +411,162 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
       } catch (_) { /* unparseable — give up */ }
       return false;
     };
+
+    const _safeText = function(value, maxLength) {
+      try {
+        const text = String(value || '').replace(/\\s+/g, ' ').trim();
+        if (!text) return '';
+        return text.length > maxLength ? text.slice(0, maxLength) : text;
+      } catch (_) {
+        return '';
+      }
+    };
+
+    const _closestElement = function(el, selector) {
+      try {
+        if (!el || typeof el.closest !== 'function') return null;
+        return el.closest(selector);
+      } catch (_) {
+        return null;
+      }
+    };
+
+    const _elementText = function(el) {
+      try {
+        return _safeText(
+          (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) ||
+          el.innerText ||
+          el.textContent ||
+          '',
+          120
+        );
+      } catch (_) {
+        return '';
+      }
+    };
+
+    const _describeElementPath = function(el, event) {
+      const summary = {};
+      try {
+        if (!el || !el.tagName) return summary;
+        summary.tag = _safeText(el.tagName, 32);
+        if (el.getAttribute) {
+          summary.type = _safeText(el.getAttribute('type'), 32);
+          summary.role = _safeText(el.getAttribute('role'), 64);
+          summary.aria = _safeText(el.getAttribute('aria-label'), 100);
+        }
+        summary.text = _elementText(el);
+        if (el instanceof HTMLButtonElement)
+          summary.buttonType = _safeText(el.type, 32);
+
+        const anchor = el instanceof HTMLAnchorElement ? el : _closestElement(el, 'a');
+        if (anchor) {
+          summary.anchorHref = sanitizeUrl(anchor.href || anchor.getAttribute('href') || '');
+          summary.anchorTarget = _safeText(anchor.target || anchor.getAttribute('target'), 64);
+          summary.anchorDownload = !!anchor.download;
+          summary.anchorLooksDownload = _urlLooksLikeDownload(anchor.href || anchor.getAttribute('href') || '');
+        }
+
+        const form = el instanceof HTMLFormElement ? el : _closestElement(el, 'form');
+        if (form) {
+          summary.formAction = sanitizeUrl(form.action || form.getAttribute('action') || '');
+          summary.formTarget = _safeText(form.target || form.getAttribute('target'), 64);
+          summary.formMethod = _safeText(form.method || form.getAttribute('method'), 16);
+          summary.formLooksDownload = _urlLooksLikeDownload(form.action || form.getAttribute('action') || '');
+        }
+
+        if (event) {
+          summary.isTrusted = !!event.isTrusted;
+          summary.defaultPrevented = !!event.defaultPrevented;
+          try {
+            const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+            summary.pathDepth = Array.isArray(path) ? path.length : 0;
+          } catch (_) {}
+        }
+        summary.pageUrl = sanitizeUrl(location.href);
+        summary.top = window === window.top;
+      } catch (_) {}
+      return summary;
+    };
+
+    const _shouldLogDomSummary = function(summary) {
+      try {
+        const haystack = [
+          summary.text,
+          summary.aria,
+          summary.role,
+          summary.anchorHref,
+          summary.formAction,
+        ].join(' ').toLowerCase();
+        return !!(
+          summary.anchorTarget ||
+          summary.formTarget ||
+          summary.anchorDownload ||
+          summary.anchorLooksDownload ||
+          summary.formLooksDownload ||
+          /statement|document|download|pdf|print|export/.test(haystack)
+        );
+      } catch (_) {
+        return true;
+      }
+    };
+
+    const _emitDomDiagnostic = function(kind, summary) {
+      try {
+        if (!_shouldLogDomSummary(summary)) return;
+        console.debug('[FocusShim] ' + kind + ' ' + JSON.stringify(summary));
+      } catch (_) {}
+    };
+
+    if (__sapotoInstallPrintBridge) try {
+      document.addEventListener('click', function(event) {
+        try {
+          const target = event && event.target;
+          if (!(target instanceof Element)) return;
+          _emitDomDiagnostic('dom-click', _describeElementPath(target, event));
+        } catch (_) {}
+      }, true);
+    } catch (_) {}
+
+    if (__sapotoInstallPrintBridge) try {
+      const proto = HTMLAnchorElement && HTMLAnchorElement.prototype;
+      const nativeClick = proto && proto.click;
+      if (typeof nativeClick === 'function') {
+        proto.click = function() {
+          try { _emitDomDiagnostic('anchor-click', _describeElementPath(this, null)); } catch (_) {}
+          return nativeClick.apply(this, arguments);
+        };
+      }
+    } catch (_) {}
+
+    if (__sapotoInstallPrintBridge) try {
+      const proto = HTMLFormElement && HTMLFormElement.prototype;
+      const nativeSubmit = proto && proto.submit;
+      if (typeof nativeSubmit === 'function') {
+        proto.submit = function() {
+          try { _emitDomDiagnostic('form-submit', _describeElementPath(this, null)); } catch (_) {}
+          return nativeSubmit.apply(this, arguments);
+        };
+      }
+      const nativeRequestSubmit = proto && proto.requestSubmit;
+      if (typeof nativeRequestSubmit === 'function') {
+        proto.requestSubmit = function(submitter) {
+          try {
+            const summary = _describeElementPath(this, null);
+            if (submitter && submitter.tagName) {
+              summary.submitterTag = _safeText(submitter.tagName, 32);
+              if (submitter.getAttribute)
+                summary.submitterType = _safeText(submitter.getAttribute('type'), 32);
+            }
+            _emitDomDiagnostic('form-request-submit', summary);
+          } catch (_) {}
+          return nativeRequestSubmit.apply(this, arguments);
+        };
+      }
+    } catch (_) {}
+
+    if (!__sapotoInstallWindowOpenBridge)
+      return;
 
     // Forward to the print capture bridge with the background-target marker
     // suffix. The marker token is the load-bearing wire contract: the
@@ -420,6 +600,49 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
       } catch (_) { /* swallow — the console marker is the primary signal */ }
     };
 
+    const _findExistingBridgeState = function() {
+      try {
+        const symbols = Object.getOwnPropertySymbols(window);
+        for (let i = 0; i < symbols.length; i += 1) {
+          let value;
+          try { value = window[symbols[i]]; } catch (_) { continue; }
+          if (
+            value &&
+            typeof value === 'object' &&
+            typeof value.arm === 'function' &&
+            typeof value.snapshot === 'function'
+          )
+            return value;
+        }
+      } catch (_) {}
+      return null;
+    };
+
+    const _existingState = _findExistingBridgeState();
+    if (_existingState) {
+      try {
+        if (__sapotoWindowOpenInitiallyArmed)
+          _existingState.arm();
+        const snapshot = _existingState.snapshot();
+        console.debug('[FocusShim] arm-existing armed=' + (!!snapshot && !!snapshot.armed) + ' at=' + sanitizeUrl(location.href));
+      } catch (_) {}
+      return;
+    }
+
+    const _state = {
+      armed: __sapotoWindowOpenInitiallyArmed,
+      arm: function() { this.armed = true; },
+      snapshot: function() { return { armed: !!this.armed }; },
+    };
+    try {
+      Object.defineProperty(window, Symbol(), {
+        value: _state,
+        writable: false,
+        configurable: true,
+        enumerable: false,
+      });
+    } catch (_) {}
+
     // Build the wrapper. Capture the original via getOwnPropertyDescriptor
     // because Chromium ships window.open as an accessor in some builds.
     const _origDesc = Object.getOwnPropertyDescriptor(window, 'open');
@@ -428,6 +651,40 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
         return _origDesc.value.bind(window);
       return window.open.bind(window);
     })();
+
+    const _describeOpen = function(label) {
+      try {
+        const d = Object.getOwnPropertyDescriptor(window, 'open');
+        const valueIsShim = !!d && typeof d.value === 'function' && d.value === _shimOpen;
+        console.debug(
+          '[FocusShim] health label=' + label +
+          ' own=' + (!!d) +
+          ' valueIsShim=' + valueIsShim +
+          ' writable=' + (!!d && d.writable === true) +
+          ' configurable=' + (!!d && d.configurable === true) +
+          ' enumerable=' + (!!d && d.enumerable === true) +
+          ' at=' + sanitizeUrl(location.href)
+        );
+      } catch (_) {}
+    };
+
+    const _scheduleOverwriteProbe = function(delayMs) {
+      try {
+        setTimeout(() => {
+          try {
+            if (window.open !== _shimOpen) {
+              const d = Object.getOwnPropertyDescriptor(window, 'open');
+              console.debug(
+                '[FocusShim] open overwritten afterMs=' + delayMs +
+                ' own=' + (!!d) +
+                ' type=' + (d && typeof d.value) +
+                ' at=' + sanitizeUrl(location.href)
+              );
+            }
+          } catch (_) {}
+        }, delayMs);
+      } catch (_) {}
+    };
 
     const _shimOpen = function open(url, target, features) {
       const u = (url == null ? '' : String(url));
@@ -446,11 +703,10 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
         return _nativeOpen(url, target, features);
       }
 
-      // Download-y/blob URL → emit background-open marker and return null.
-      // This C5 branch exists only in the captureBridge=true IIFE, so the
-      // host-side console marker path is intentionally active even when the
-      // Electron preload bridge is absent (Chrome-direct automation).
-      if (u && _urlLooksLikeDownload(u)) {
+      // Active document phases capture broad browser-capturable non-self
+      // opens. Passive pre-document phases delegate every call to native while
+      // preserving saved references to this wrapper for later arming.
+      if (_state.armed && u && _urlLooksBrowserCapturable(u)) {
         let absoluteUrl = u;
         try {
           absoluteUrl = new URL(u, location.href).href;
@@ -458,13 +714,14 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
           try { console.debug('[FocusShim] → native (invalid URL)'); } catch (_) {}
           return _nativeOpen(url, target, features);
         }
+        try { console.debug('[FocusShim] suppressing background-open url=' + sanitizeUrl(absoluteUrl) + ' target=' + (t || '(empty)') + ' reason=broad_document_phase'); } catch (_) {}
         _emitBackgroundOpen(absoluteUrl);
         return null;
       }
 
       // Other URLs — native. Focus steals but this is rare in portal
       // automation.
-      try { console.debug('[FocusShim] → native (URL did not match download heuristic)'); } catch (_) {}
+      try { console.debug('[FocusShim] → native (armed=' + (!!_state.armed) + ', URL not captured)'); } catch (_) {}
       return _nativeOpen(url, target, features);
     };
 
@@ -476,17 +733,34 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
     // CAN reassign window.open and disable us — accepted, because the
     // alternative (writable:false) is itself a stronger fingerprint.
     try {
+      const _descriptorFlags = {
+        writable: _origDesc && Object.prototype.hasOwnProperty.call(_origDesc, 'writable') ? _origDesc.writable !== false : true,
+        configurable: _origDesc ? _origDesc.configurable !== false : true,
+        enumerable: _origDesc ? _origDesc.enumerable === true : true,
+      };
       Object.defineProperty(window, 'open', {
         value: _shimOpen,
-        writable: true,
-        configurable: true,
-        enumerable: true,
+        writable: _descriptorFlags.writable,
+        configurable: _descriptorFlags.configurable,
+        enumerable: _descriptorFlags.enumerable,
       });
+      _describeOpen('installed');
+      _scheduleOverwriteProbe(0);
+      _scheduleOverwriteProbe(250);
+      _scheduleOverwriteProbe(1000);
+      _scheduleOverwriteProbe(5000);
     } catch (_) {
       // Fallback: plain assignment. Some hardened browsers may reject
       // defineProperty on built-ins; accept the override risk.
       try { console.debug('[FocusShim] defineProperty failed, falling back to assignment'); } catch (_) {}
-      try { (window).open = _shimOpen; } catch (_) { /* really stuck */ }
+      try {
+        (window).open = _shimOpen;
+        _describeOpen('assignment-fallback');
+        _scheduleOverwriteProbe(0);
+        _scheduleOverwriteProbe(250);
+        _scheduleOverwriteProbe(1000);
+        _scheduleOverwriteProbe(5000);
+      } catch (_) { /* really stuck */ }
     }
   } catch (e) {
     // Diagnostic-only catch. C3 / C4 already ran outside this try.
@@ -495,6 +769,43 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
       try { console.debug('[FocusShim] install crashed: ' + msg + ' | at ' + sanitizeUrl(location.href)); } catch (_) {}
     } catch (_) { /* logger itself threw — give up silently */ }
   }
+})();`;
+}
+
+export function buildArmCaptureBridgeInitScript(): string {
+  return `(() => {
+  const sanitizeUrl = function(href) {
+    if (typeof href !== 'string') return String(href);
+    if (!href) return href;
+    try {
+      const u = new URL(href, location.href);
+      u.search = '';
+      u.hash = '';
+      return u.toString();
+    } catch (_) {
+      const cut = href.search(/[?#]/);
+      return cut === -1 ? href : href.slice(0, cut);
+    }
+  };
+  try {
+    const symbols = Object.getOwnPropertySymbols(window);
+    for (let i = 0; i < symbols.length; i += 1) {
+      let value;
+      try { value = window[symbols[i]]; } catch (_) { continue; }
+      if (
+        value &&
+        typeof value === 'object' &&
+        typeof value.arm === 'function' &&
+        typeof value.snapshot === 'function'
+      ) {
+        value.arm();
+        try { console.debug('[FocusShim] armed existing wrapper at=' + sanitizeUrl(location.href)); } catch (_) {}
+        return true;
+      }
+    }
+    try { console.debug('[FocusShim] no existing wrapper to arm at=' + sanitizeUrl(location.href)); } catch (_) {}
+  } catch (_) {}
+  return false;
 })();`;
 }
 

@@ -51,6 +51,7 @@ export function decorateMCPCommand(command: Command) {
       // URLs from `browser_tabs`. Channel-only — not exposed in docs/api or
       // the public types.d.ts.
       .option('--capture-bridge', 'install the Sapoto capture-bridge IIFE on every page and hide background-target capture tabs from browser_tabs.')
+      .option('--window-open-capture-mode <mode>', 'Sapoto window.open bridge mode: off, passive, or active.', enumParser.bind(null, '--window-open-capture-mode', ['off', 'passive', 'active']))
       .option('--cdp-endpoint <endpoint>', 'CDP endpoint to connect to.')
       .option('--cdp-header <headers...>', 'CDP headers to send with the connect request, multiple can be specified.', headerParser)
       // Sapoto Tracer #1153 (Unit G-stealth) — decomposed CDP-stealth flag
