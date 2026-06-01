@@ -15,6 +15,8 @@
  */
 
 import { EventEmitter } from 'events';
+import fs from 'fs';
+import path from 'path';
 import debug from 'debug';
 import { asLocator } from '@isomorphic/locatorGenerators';
 import { locatorOrSelectorAsSelector } from '@isomorphic/locatorParser';
@@ -183,13 +185,25 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   private async _initialize() {
-    if (this._agentSessionOverlayScript) {
+    const currentPageInitScripts: string[] = [];
+    for (const initScript of this.context.config.browser?.initScript || []) {
       try {
-        this._disposables.push(await this.page.addInitScript({ content: this._agentSessionOverlayScript }));
-        await this.page.evaluate(this._agentSessionOverlayScript).catch(() => {});
+        const content = await fs.promises.readFile(path.resolve(this.context.options.cwd, initScript), 'utf8');
+        currentPageInitScripts.push(content);
       } catch (e) {
         debug('pw:tools:error')(e);
       }
+    }
+    if (this._agentSessionOverlayScript) {
+      try {
+        this._disposables.push(await this.page.addInitScript({ content: this._agentSessionOverlayScript }));
+        await this.page.evaluate([...currentPageInitScripts, this._agentSessionOverlayScript].join('\n;\n')).catch(() => {});
+      } catch (e) {
+        debug('pw:tools:error')(e);
+      }
+    } else {
+      for (const initScript of currentPageInitScripts)
+        await this.page.evaluate(initScript).catch(() => {});
     }
     for (const message of await Tab.collectConsoleMessages(this.page))
       this._handleConsoleMessage(message);

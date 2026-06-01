@@ -181,7 +181,7 @@ it('agent-session overlay does not leak token when non-configurable page-owned h
   expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
 });
 
-it('agent-session overlay stop affordance fires while host pointer-events stays none', async ({ context, server }) => {
+it('agent-session overlay stop affordance requires a one-second hold while host pointer-events stays none', async ({ context, server }) => {
   await context.addInitScript({ content: OVERLAY_SCRIPT });
   const page = await context.newPage();
   await page.goto(server.EMPTY_PAGE);
@@ -207,14 +207,91 @@ it('agent-session overlay stop affordance fires while host pointer-events stays 
     y: window.innerHeight - 27,
   }));
   await page.mouse.click(stopButtonPoint.x, stopButtonPoint.y);
-  await page.mouse.click(stopButtonPoint.x, stopButtonPoint.y);
+  await page.waitForTimeout(1100);
 
   expect(await page.evaluate(() => ({
     callbackCount: (window as any).__stopCallbackCount,
     eventCount: (window as any).__stopEventCount,
   }))).toEqual({
-    callbackCount: 2,
-    eventCount: 2,
+    callbackCount: 0,
+    eventCount: 0,
+  });
+
+  await page.mouse.move(stopButtonPoint.x, stopButtonPoint.y);
+  await page.mouse.down();
+  await page.waitForTimeout(1100);
+  await page.mouse.up();
+
+  expect(await page.evaluate(() => ({
+    callbackCount: (window as any).__stopCallbackCount,
+    eventCount: (window as any).__stopEventCount,
+  }))).toEqual({
+    callbackCount: 1,
+    eventCount: 1,
   });
   expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).pointerEvents)).toBe('none');
+});
+
+it('agent-session overlay document panel dispatches latest and past fetch requests from configured accounts', async ({ context, server }) => {
+  await context.addInitScript({ content: `
+    window.__documentFetchCallbackDetails = [];
+    window.__sapotoDocumentFetchOverlayConfig = {
+      accounts: [
+        { token: 'checking-token', label: 'Everyday checking' },
+        { token: 'savings-token', label: 'Savings' },
+      ],
+      currentAccountToken: 'checking-token',
+      years: [2026, 2025],
+      months: [5, 4],
+    };
+    window.__sapotoDocumentFetchRequested = detail => window.__documentFetchCallbackDetails.push(detail);
+    ${OVERLAY_SCRIPT}
+  ` });
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 900, height: 620 });
+  await page.goto(server.EMPTY_PAGE);
+
+  await page.mouse.click(740, 380);
+  await page.mouse.click(662, 388);
+  await page.mouse.click(739, 519);
+
+  expect(await page.evaluate(() => (window as any).__documentFetchCallbackDetails)).toEqual([
+    { accountToken: 'checking-token', mode: 'latest' },
+  ]);
+  expect(await page.evaluate(() => ({
+    configExposed: Object.prototype.hasOwnProperty.call(window, '__sapotoDocumentFetchOverlayConfig'),
+    callbackExposed: Object.prototype.hasOwnProperty.call(window, '__sapotoDocumentFetchRequested'),
+  }))).toEqual({ configExposed: false, callbackExposed: false });
+
+  await page.mouse.click(565, 324);
+  await page.mouse.click(740, 380);
+  await page.mouse.click(819, 388);
+  await page.mouse.click(739, 519);
+
+  expect(await page.evaluate(() => (window as any).__documentFetchCallbackDetails)).toEqual([
+    { accountToken: 'checking-token', mode: 'latest' },
+    { accountToken: 'checking-token', mode: 'since_date', sinceYear: 2026, sinceMonth: 5 },
+  ]);
+
+  expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).pointerEvents)).toBe('none');
+});
+
+it('agent-session overlay document panel is absent without configured accounts', async ({ context, server }) => {
+  await context.addInitScript({ content: OVERLAY_SCRIPT });
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 900, height: 620 });
+  await page.goto(server.EMPTY_PAGE);
+
+  await page.evaluate(() => {
+    (window as any).__documentFetchEventDetails = [];
+    window.addEventListener('__sapotoMcpDocumentFetchRequested', event => {
+      (window as any).__documentFetchEventDetails.push((event as CustomEvent).detail);
+    });
+  });
+
+  await page.mouse.click(740, 438);
+  await page.mouse.click(662, 438);
+  await page.mouse.click(739, 563);
+
+  expect(await page.evaluate(() => (window as any).__documentFetchEventDetails)).toEqual([]);
 });

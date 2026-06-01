@@ -60,6 +60,16 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
   let stopRequested = false;
   let treeObserver;
   let hostObserver;
+  let stopHoldTimer;
+  let stopHoldCompleted = false;
+  let documentPanel;
+  let documentPanelStep = 1;
+  let documentPanelMode = 'latest';
+  let selectedAccountToken;
+  let selectedYear;
+  let selectedMonth;
+  let documentFetchConfig;
+  let documentFetchCallback;
 
   const setImportant = (element, name, value) => {
     try {
@@ -129,20 +139,38 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
         left: 50% !important;
         bottom: 12px !important;
         transform: translateX(-50%) !important;
-        min-width: 64px !important;
-        height: 30px !important;
-        padding: 0 13px !important;
+        z-index: 2147483647 !important;
+        min-width: 132px !important;
+        height: 34px !important;
+        padding: 0 15px !important;
         border: 1px solid rgba(146, 54, 10, 0.38) !important;
-        border-radius: 15px !important;
+        border-radius: 17px !important;
         background: #ff6f1a !important;
         color: #ffffff !important;
-        font: 600 13px/28px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        font: 700 12px/32px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
         letter-spacing: 0 !important;
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22) !important;
         cursor: pointer !important;
         pointer-events: auto !important;
         user-select: none !important;
         -webkit-user-select: none !important;
+        overflow: hidden !important;
+        touch-action: none !important;
+      }
+      .stop::before {
+        content: "" !important;
+        position: absolute !important;
+        inset: 0 !important;
+        width: 0 !important;
+        background: rgba(104, 28, 0, 0.32) !important;
+        transition: width 1000ms linear !important;
+      }
+      .stop.holding::before {
+        width: 100% !important;
+      }
+      .stop span {
+        position: relative !important;
+        z-index: 1 !important;
       }
       .badge {
         position: fixed !important;
@@ -155,6 +183,156 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
         font: 600 11px/14px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
         letter-spacing: 0 !important;
         pointer-events: none !important;
+      }
+      .document-panel {
+        position: fixed !important;
+        right: 16px !important;
+        bottom: 64px !important;
+        z-index: 2147483646 !important;
+        width: 336px !important;
+        max-width: calc(100vw - 24px) !important;
+        height: 248px !important;
+        padding: 14px 16px !important;
+        border: 1px solid rgba(15, 23, 42, 0.18) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, 0.98) !important;
+        color: #111827 !important;
+        box-shadow: 0 16px 44px rgba(15, 23, 42, 0.24) !important;
+        box-sizing: border-box !important;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        pointer-events: auto !important;
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        overflow: hidden !important;
+      }
+      .document-panel * {
+        box-sizing: border-box !important;
+        letter-spacing: 0 !important;
+      }
+      .document-topbar {
+        display: grid !important;
+        grid-template-columns: 48px 1fr 52px !important;
+        align-items: center !important;
+        gap: 8px !important;
+        height: 32px !important;
+      }
+      .document-back {
+        width: 34px !important;
+        height: 28px !important;
+        border: 1px solid rgba(15, 23, 42, 0.16) !important;
+        border-radius: 6px !important;
+        background: #f8fafc !important;
+        color: #111827 !important;
+        cursor: pointer !important;
+        font: 700 16px/24px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        padding: 0 !important;
+        pointer-events: auto !important;
+      }
+      .document-step {
+        color: #334155 !important;
+        font: 700 12px/16px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        text-align: center !important;
+      }
+      .document-progress {
+        display: flex !important;
+        gap: 4px !important;
+        justify-content: flex-end !important;
+      }
+      .document-progress span {
+        width: 20px !important;
+        height: 5px !important;
+        border-radius: 5px !important;
+        background: #cbd5e1 !important;
+      }
+      .document-progress .active {
+        background: #ff6f1a !important;
+      }
+      .document-body {
+        margin-top: 18px !important;
+        max-height: 142px !important;
+        overflow-y: auto !important;
+      }
+      .account-list {
+        display: grid !important;
+        gap: 8px !important;
+        padding-right: 2px !important;
+      }
+      .account-row, .choice {
+        width: 100% !important;
+        border: 1px solid rgba(15, 23, 42, 0.16) !important;
+        border-radius: 7px !important;
+        background: #ffffff !important;
+        color: #111827 !important;
+        cursor: pointer !important;
+        text-align: left !important;
+        pointer-events: auto !important;
+      }
+      .account-row {
+        height: 42px !important;
+        padding: 0 12px !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        font: 700 13px/40px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      }
+      .account-row.selected, .choice.selected {
+        border-color: #ff6f1a !important;
+        box-shadow: 0 0 0 2px rgba(255, 111, 26, 0.18) !important;
+      }
+      .choices {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 10px !important;
+      }
+      .choice {
+        height: 58px !important;
+        padding: 0 10px !important;
+        text-align: center !important;
+        font: 700 13px/16px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      }
+      .past-fields {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 10px !important;
+        margin-top: 12px !important;
+      }
+      .past-fields select {
+        width: 100% !important;
+        height: 32px !important;
+        border: 1px solid rgba(15, 23, 42, 0.16) !important;
+        border-radius: 6px !important;
+        background: #ffffff !important;
+        color: #111827 !important;
+        font: 600 12px/16px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        pointer-events: auto !important;
+      }
+      .fetch {
+        position: absolute !important;
+        left: 16px !important;
+        right: 16px !important;
+        bottom: 16px !important;
+        height: 42px !important;
+        border: 0 !important;
+        border-radius: 7px !important;
+        background: #111827 !important;
+        color: #ffffff !important;
+        cursor: pointer !important;
+        font: 800 13px/40px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        pointer-events: auto !important;
+      }
+      @media (max-width: 420px) {
+        .document-panel {
+          right: 12px !important;
+          bottom: 60px !important;
+          width: calc(100vw - 24px) !important;
+          height: 256px !important;
+          padding: 12px !important;
+        }
+        .fetch {
+          left: 12px !important;
+          right: 12px !important;
+          bottom: 12px !important;
+        }
       }
     \`;
     try {
@@ -174,6 +352,225 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
     }
   };
 
+  const readDocumentFetchConfig = () => {
+    let raw;
+    try {
+      raw = window.__sapotoDocumentFetchOverlayConfig;
+      if (typeof window.__sapotoDocumentFetchRequested === 'function')
+        documentFetchCallback = window.__sapotoDocumentFetchRequested;
+      try { delete window.__sapotoDocumentFetchOverlayConfig; } catch (_) {}
+      try { delete window.__sapotoDocumentFetchRequested; } catch (_) {}
+    } catch (_) { return undefined; }
+    if (!raw || typeof raw !== 'object')
+      return undefined;
+    const accounts = Array.isArray(raw.accounts) ? raw.accounts.map(account => {
+      if (!account || typeof account !== 'object')
+        return undefined;
+      const token = typeof account.token === 'string' ? account.token : '';
+      const label = typeof account.label === 'string' ? account.label : '';
+      if (!token || !label)
+        return undefined;
+      return { token, label };
+    }).filter(Boolean) : [];
+    if (!accounts.length)
+      return undefined;
+    const currentAccountToken = typeof raw.currentAccountToken === 'string' ? raw.currentAccountToken : undefined;
+    const years = Array.isArray(raw.years) ? raw.years.map(year => Number(year)).filter(year => Number.isInteger(year) && year >= 1900 && year <= 3000) : [];
+    const months = Array.isArray(raw.months) ? raw.months.map(month => Number(month)).filter(month => Number.isInteger(month) && month >= 1 && month <= 12) : [];
+    return {
+      accounts,
+      currentAccountToken,
+      years: years.length ? years : [new Date().getFullYear()],
+      months: months.length ? months : [new Date().getMonth() + 1],
+    };
+  };
+
+  const appendText = (parent, tag, className, text) => {
+    const element = document.createElement(tag);
+    if (className)
+      element.className = className;
+    element.textContent = text;
+    parent.appendChild(element);
+    return element;
+  };
+
+  const dispatchStopRequested = () => {
+    if (stopRequested)
+      return;
+    stopRequested = true;
+    try {
+      if (typeof window.__sapotoStopRequested === 'function')
+        window.__sapotoStopRequested();
+    } catch (_) {
+    }
+    try { window.dispatchEvent(new CustomEvent('__sapotoMcpStopRequested')); } catch (_) {}
+  };
+
+  const cancelStopHold = stop => {
+    try { clearTimeout(stopHoldTimer); } catch (_) {}
+    stopHoldTimer = undefined;
+    stopHoldCompleted = false;
+    try { stop.classList.remove('holding'); } catch (_) {}
+  };
+
+  const startStopHold = stop => {
+    cancelStopHold(stop);
+    stopHoldCompleted = false;
+    try { stop.classList.add('holding'); } catch (_) {}
+    stopHoldTimer = setTimeout(() => {
+      stopHoldCompleted = true;
+      try { stop.classList.remove('holding'); } catch (_) {}
+      dispatchStopRequested();
+    }, 1000);
+  };
+
+  const monthLabel = month => {
+    const labels = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    return labels[month - 1] || String(month);
+  };
+
+  const dispatchDocumentFetch = () => {
+    if (!selectedAccountToken)
+      return;
+    const detail = documentPanelMode === 'past' ? {
+      accountToken: selectedAccountToken,
+      mode: 'since_date',
+      sinceYear: selectedYear,
+      sinceMonth: selectedMonth,
+    } : {
+      accountToken: selectedAccountToken,
+      mode: 'latest',
+    };
+    try {
+      if (typeof documentFetchCallback === 'function')
+        documentFetchCallback(detail);
+    } catch (_) {
+    }
+  };
+
+  const renderDocumentPanel = () => {
+    if (!documentPanel || !documentFetchConfig)
+      return;
+    while (documentPanel.firstChild)
+      documentPanel.removeChild(documentPanel.firstChild);
+
+    const topbar = appendText(documentPanel, 'div', 'document-topbar', '');
+    const back = document.createElement('button');
+    back.className = 'document-back';
+    back.type = 'button';
+    back.textContent = '‹';
+    if (documentPanelStep === 1)
+      back.style.visibility = 'hidden';
+    back.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      documentPanelStep = 1;
+      renderDocumentPanel();
+    }, true);
+    topbar.appendChild(back);
+    appendText(topbar, 'div', 'document-step', documentPanelStep === 1 ? 'Step 1 of 2' : 'Step 2 of 2');
+    const progress = appendText(topbar, 'div', 'document-progress', '');
+    appendText(progress, 'span', 'active', '');
+    appendText(progress, 'span', documentPanelStep === 2 ? 'active' : '', '');
+
+    const body = appendText(documentPanel, 'div', 'document-body', '');
+    if (documentPanelStep === 1) {
+      const list = appendText(body, 'div', 'account-list', '');
+      for (const account of documentFetchConfig.accounts) {
+        const row = document.createElement('button');
+        row.className = account.token === selectedAccountToken ? 'account-row selected' : 'account-row';
+        row.type = 'button';
+        row.textContent = account.label;
+        row.addEventListener('click', event => {
+          event.preventDefault();
+          event.stopPropagation();
+          selectedAccountToken = account.token;
+          documentPanelStep = 2;
+          renderDocumentPanel();
+        }, true);
+        list.appendChild(row);
+      }
+      return;
+    }
+
+    const choices = appendText(body, 'div', 'choices', '');
+    const latest = document.createElement('button');
+    latest.className = documentPanelMode === 'latest' ? 'choice selected' : 'choice';
+    latest.type = 'button';
+    latest.textContent = 'Latest statement';
+    latest.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      documentPanelMode = 'latest';
+      renderDocumentPanel();
+    }, true);
+    choices.appendChild(latest);
+
+    const past = document.createElement('button');
+    past.className = documentPanelMode === 'past' ? 'choice selected' : 'choice';
+    past.type = 'button';
+    past.textContent = 'Past statements';
+    past.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      documentPanelMode = 'past';
+      renderDocumentPanel();
+    }, true);
+    choices.appendChild(past);
+
+    if (documentPanelMode === 'past') {
+      const fields = appendText(body, 'div', 'past-fields', '');
+      const yearSelect = document.createElement('select');
+      for (const year of documentFetchConfig.years) {
+        const option = document.createElement('option');
+        option.value = String(year);
+        option.textContent = String(year);
+        if (year === selectedYear)
+          option.selected = true;
+        yearSelect.appendChild(option);
+      }
+      yearSelect.addEventListener('change', () => selectedYear = Number(yearSelect.value));
+      fields.appendChild(yearSelect);
+
+      const monthSelect = document.createElement('select');
+      for (const month of documentFetchConfig.months) {
+        const option = document.createElement('option');
+        option.value = String(month);
+        option.textContent = monthLabel(month);
+        if (month === selectedMonth)
+          option.selected = true;
+        monthSelect.appendChild(option);
+      }
+      monthSelect.addEventListener('change', () => selectedMonth = Number(monthSelect.value));
+      fields.appendChild(monthSelect);
+    }
+
+    const fetch = document.createElement('button');
+    fetch.className = 'fetch';
+    fetch.type = 'button';
+    fetch.textContent = documentPanelMode === 'past' ? 'Fetch past statements' : 'Fetch latest statement';
+    fetch.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchDocumentFetch();
+    }, true);
+    documentPanel.appendChild(fetch);
+  };
+
+  const maybeBuildDocumentPanel = () => {
+    documentFetchConfig = readDocumentFetchConfig();
+    if (!documentFetchConfig)
+      return;
+    const matchingAccount = documentFetchConfig.accounts.find(account => account.token === documentFetchConfig.currentAccountToken);
+    selectedAccountToken = (matchingAccount || documentFetchConfig.accounts[0]).token;
+    selectedYear = documentFetchConfig.years[0];
+    selectedMonth = documentFetchConfig.months[0];
+    documentPanel = document.createElement('div');
+    documentPanel.className = 'document-panel';
+    renderDocumentPanel();
+    root.appendChild(documentPanel);
+  };
+
   const buildDom = () => {
     host = document.createElement(HOST_TAG);
     restoreHostStyles();
@@ -189,19 +586,53 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
     const stop = document.createElement('button');
     stop.className = 'stop';
     stop.type = 'button';
-    stop.textContent = 'Stop';
+    const stopLabel = document.createElement('span');
+    stopLabel.textContent = 'Hold to stop';
+    stop.appendChild(stopLabel);
+    stop.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      startStopHold(stop);
+    }, true);
+    stop.addEventListener('pointerup', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!stopHoldCompleted)
+        cancelStopHold(stop);
+    }, true);
+    stop.addEventListener('pointercancel', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelStopHold(stop);
+    }, true);
+    stop.addEventListener('pointerleave', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelStopHold(stop);
+    }, true);
+    stop.addEventListener('keydown', event => {
+      if (event.key !== ' ' && event.key !== 'Enter')
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!stopHoldTimer && !stopHoldCompleted)
+        startStopHold(stop);
+    }, true);
+    stop.addEventListener('keyup', event => {
+      if (event.key !== ' ' && event.key !== 'Enter')
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!stopHoldCompleted)
+        cancelStopHold(stop);
+    }, true);
     stop.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      stopRequested = true;
-      try {
-        if (typeof window.__sapotoStopRequested === 'function')
-          window.__sapotoStopRequested();
-      } catch (_) {
-      }
-      try { window.dispatchEvent(new CustomEvent('__sapotoMcpStopRequested')); } catch (_) {}
     }, true);
     root.appendChild(stop);
+
+    maybeBuildDocumentPanel();
 
     if (STATUS_TEXT) {
       const badge = document.createElement('div');
