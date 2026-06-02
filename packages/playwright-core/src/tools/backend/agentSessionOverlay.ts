@@ -18,11 +18,21 @@ import { createGuid } from '@utils/crypto';
 
 export type AgentSessionOverlayOptions = {
   statusText?: string;
+  documentFetch?: AgentSessionOverlayDocumentFetchOptions;
 };
 
 export type AgentSessionOverlayScript = {
   content: string;
   controlToken: string;
+};
+
+export type AgentSessionOverlayDocumentFetchOptions = {
+  endpoint: string;
+  payload: Record<string, unknown>;
+  accounts: Array<{ token: string; label: string }>;
+  currentAccountToken?: string;
+  years?: number[];
+  months?: number[];
 };
 
 export const AGENT_SESSION_OVERLAY_HOST = 'sapoto-mcp-agent-session-overlay';
@@ -38,11 +48,15 @@ export function createAgentSessionOverlayScript(options: AgentSessionOverlayOpti
 
 export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, controlToken = createGuid()): string {
   const statusText = options.statusText ?? '';
+  const documentFetchConfig = options.documentFetch && options.documentFetch.accounts.length > 0
+    ? options.documentFetch
+    : null;
   return `(() => {
   const HOST_TAG = ${JSON.stringify(AGENT_SESSION_OVERLAY_HOST)};
   const GLOBAL_NAME = ${JSON.stringify(AGENT_SESSION_OVERLAY_GLOBAL)};
   const CONTROL_TOKEN = ${JSON.stringify(controlToken)};
   const STATUS_TEXT = ${JSON.stringify(statusText)};
+  const DOCUMENT_FETCH_CONFIG = ${JSON.stringify(documentFetchConfig)};
 
   try {
     if (window !== window.top)
@@ -69,7 +83,6 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
   let selectedYear;
   let selectedMonth;
   let documentFetchConfig;
-  let documentFetchCallback;
 
   const setImportant = (element, name, value) => {
     try {
@@ -353,11 +366,8 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
   };
 
   const readDocumentFetchConfig = () => {
-    let raw;
+    const raw = DOCUMENT_FETCH_CONFIG;
     try {
-      raw = window.__sapotoDocumentFetchOverlayConfig;
-      if (typeof window.__sapotoDocumentFetchRequested === 'function')
-        documentFetchCallback = window.__sapotoDocumentFetchRequested;
       try { delete window.__sapotoDocumentFetchOverlayConfig; } catch (_) {}
       try { delete window.__sapotoDocumentFetchRequested; } catch (_) {}
     } catch (_) { return undefined; }
@@ -378,6 +388,8 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
     const years = Array.isArray(raw.years) ? raw.years.map(year => Number(year)).filter(year => Number.isInteger(year) && year >= 1900 && year <= 3000) : [];
     const months = Array.isArray(raw.months) ? raw.months.map(month => Number(month)).filter(month => Number.isInteger(month) && month >= 1 && month <= 12) : [];
     return {
+      endpoint: typeof raw.endpoint === 'string' ? raw.endpoint : '',
+      payload: raw.payload && typeof raw.payload === 'object' ? raw.payload : {},
       accounts,
       currentAccountToken,
       years: years.length ? years : [new Date().getFullYear()],
@@ -442,8 +454,16 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
       mode: 'latest',
     };
     try {
-      if (typeof documentFetchCallback === 'function')
-        documentFetchCallback(detail);
+      if (!documentFetchConfig.endpoint)
+        return;
+      fetch(documentFetchConfig.endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(Object.assign({}, detail, documentFetchConfig.payload || {})),
+        keepalive: true,
+        mode: 'cors',
+        credentials: 'omit',
+      }).catch(() => {});
     } catch (_) {
     }
   };
@@ -552,6 +572,8 @@ export function buildOverlayScript(options: AgentSessionOverlayOptions = {}, con
     fetch.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
+      if (!event.isTrusted)
+        return;
       dispatchDocumentFetch();
     }, true);
     documentPanel.appendChild(fetch);

@@ -233,9 +233,15 @@ it('agent-session overlay stop affordance requires a one-second hold while host 
 });
 
 it('agent-session overlay document panel dispatches latest and past fetch requests from configured accounts', async ({ context, server }) => {
-  await context.addInitScript({ content: `
-    window.__documentFetchCallbackDetails = [];
-    window.__sapotoDocumentFetchOverlayConfig = {
+  const documentFetchRequests: unknown[] = [];
+  await context.route('**/sapoto-document-fetch', async route => {
+    documentFetchRequests.push(route.request().postDataJSON());
+    await route.fulfill({ status: 204, body: '' });
+  });
+  await context.addInitScript({ content: buildOverlayScript({
+    documentFetch: {
+      endpoint: `${server.PREFIX}/sapoto-document-fetch`,
+      payload: { runId: 'run-document-fetch' },
       accounts: [
         { token: 'checking-token', label: 'Everyday checking' },
         { token: 'savings-token', label: 'Savings' },
@@ -243,10 +249,8 @@ it('agent-session overlay document panel dispatches latest and past fetch reques
       currentAccountToken: 'checking-token',
       years: [2026, 2025],
       months: [5, 4],
-    };
-    window.__sapotoDocumentFetchRequested = detail => window.__documentFetchCallbackDetails.push(detail);
-    ${OVERLAY_SCRIPT}
-  ` });
+    },
+  }) });
   const page = await context.newPage();
   await page.setViewportSize({ width: 900, height: 620 });
   await page.goto(server.EMPTY_PAGE);
@@ -255,8 +259,8 @@ it('agent-session overlay document panel dispatches latest and past fetch reques
   await page.mouse.click(662, 388);
   await page.mouse.click(739, 519);
 
-  expect(await page.evaluate(() => (window as any).__documentFetchCallbackDetails)).toEqual([
-    { accountToken: 'checking-token', mode: 'latest' },
+  await expect.poll(() => documentFetchRequests).toEqual([
+    { accountToken: 'checking-token', mode: 'latest', runId: 'run-document-fetch' },
   ]);
   expect(await page.evaluate(() => ({
     configExposed: Object.prototype.hasOwnProperty.call(window, '__sapotoDocumentFetchOverlayConfig'),
@@ -268,9 +272,9 @@ it('agent-session overlay document panel dispatches latest and past fetch reques
   await page.mouse.click(819, 388);
   await page.mouse.click(739, 519);
 
-  expect(await page.evaluate(() => (window as any).__documentFetchCallbackDetails)).toEqual([
-    { accountToken: 'checking-token', mode: 'latest' },
-    { accountToken: 'checking-token', mode: 'since_date', sinceYear: 2026, sinceMonth: 5 },
+  await expect.poll(() => documentFetchRequests).toEqual([
+    { accountToken: 'checking-token', mode: 'latest', runId: 'run-document-fetch' },
+    { accountToken: 'checking-token', mode: 'since_date', sinceYear: 2026, sinceMonth: 5, runId: 'run-document-fetch' },
   ]);
 
   expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).pointerEvents)).toBe('none');

@@ -28,11 +28,12 @@ import { LogFile } from './logFile';
 import { ModalState } from './tool';
 import { handleDialog } from './dialogs';
 import { uploadFile } from './files';
-import { AGENT_SESSION_OVERLAY_GLOBAL } from './agentSessionOverlay';
+import { AGENT_SESSION_OVERLAY_GLOBAL, createAgentSessionOverlayScript } from './agentSessionOverlay';
 
 import type { Disposable } from '@isomorphic/disposable';
 import type { Context, ContextConfig } from './context';
 import type * as playwright from '../../..';
+import type { AgentSessionOverlayDocumentFetchOptions } from './agentSessionOverlay';
 
 const TabEvents = {
   modalState: 'modalState'
@@ -196,8 +197,15 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     }
     if (this._agentSessionOverlayScript) {
       try {
-        this._disposables.push(await this.page.addInitScript({ content: this._agentSessionOverlayScript }));
-        await this.page.evaluate([...currentPageInitScripts, this._agentSessionOverlayScript].join('\n;\n')).catch(() => {});
+        const documentFetch = extractAgentSessionDocumentFetchConfig(currentPageInitScripts);
+        if (documentFetch) {
+          const overlayScript = createAgentSessionOverlayScript({ documentFetch });
+          this._agentSessionOverlayScript = overlayScript.content;
+          this._agentSessionOverlayControlToken = overlayScript.controlToken;
+        }
+        const orderedInitScript = [...currentPageInitScripts, this._agentSessionOverlayScript].join('\n;\n');
+        this._disposables.push(await this.page.addInitScript({ content: orderedInitScript }));
+        await this.page.evaluate(orderedInitScript).catch(() => {});
       } catch (e) {
         debug('pw:tools:error')(e);
       }
@@ -633,6 +641,32 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     }
 
     await this.page.evaluate(() => new Promise(f => setTimeout(f, 1000))).catch(() => {});
+  }
+}
+
+const documentFetchMarker = /\/\*\s*__sapotoAgentSessionDocumentFetchOverlayConfigV1__=([A-Za-z0-9+/=]+)\s*\*\//;
+
+function extractAgentSessionDocumentFetchConfig(initScripts: string[]): AgentSessionOverlayDocumentFetchOptions | undefined {
+  for (const script of initScripts) {
+    const match = documentFetchMarker.exec(script);
+    if (!match)
+      continue;
+    try {
+      const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8'));
+      if (!parsed || typeof parsed !== 'object')
+        return undefined;
+      const candidate = parsed as AgentSessionOverlayDocumentFetchOptions;
+      if (typeof candidate.endpoint !== 'string' || !candidate.endpoint)
+        return undefined;
+      if (!candidate.payload || typeof candidate.payload !== 'object')
+        return undefined;
+      if (!Array.isArray(candidate.accounts) || !candidate.accounts.length)
+        return undefined;
+      return candidate;
+    } catch (e) {
+      debug('pw:tools:error')(e);
+      return undefined;
+    }
   }
 }
 
