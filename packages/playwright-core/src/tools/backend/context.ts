@@ -426,8 +426,12 @@ export class Context {
         },
       });
     }
-    for (const initScript of this.config.browser?.initScript || [])
-      this._disposables.push(await browserContext.addInitScript({ path: path.resolve(this.options.cwd, initScript) }));
+    for (const initScript of this.config.browser?.initScript || []) {
+      const resolvedInitScript = path.resolve(this.options.cwd, initScript);
+      if (await isAgentSessionOverlayBoundInitScript(resolvedInitScript))
+        continue;
+      this._disposables.push(await browserContext.addInitScript({ path: resolvedInitScript }));
+    }
 
     // Sapoto Tracer #1154 (Unit I): install the capture-bridge IIFE on every
     // new page when `--capture-bridge` is set. Inert form when disabled
@@ -475,6 +479,16 @@ export class Context {
       value: this.config.secrets[secretName]!,
       code: `process.env['${secretName}']`,
     };
+  }
+}
+
+async function isAgentSessionOverlayBoundInitScript(scriptPath: string): Promise<boolean> {
+  try {
+    const content = await fs.promises.readFile(scriptPath, 'utf8');
+    return content.includes('__sapotoAgentSessionDocumentFetchOverlayConfigV1__=');
+  } catch (e) {
+    debug('pw:tools:error')(e);
+    return false;
   }
 }
 
