@@ -87,6 +87,7 @@ const click = defineTabTool({
     else
       response.addCode(`await page.${resolved}.click(${optionsArg});`);
 
+    await tab.pulseAgentSessionClickOnLocator(locator);
     await tab.waitForCompletion(async () => {
       if (params.doubleClick)
         await locator.dblclick(options);
@@ -119,9 +120,11 @@ const drag = defineTabTool({
       { target: params.endTarget, element: params.endElement },
     ]);
 
+    await tab.moveAgentSessionCursorToLocator(start.locator);
     await tab.waitForCompletion(async () => {
       await start.locator.dragTo(end.locator, tab.actionTimeoutOptions);
     });
+    await tab.moveAgentSessionCursorToLocator(end.locator);
 
     response.addCode(`await page.${start.resolved}.dragTo(page.${end.resolved});`);
   },
@@ -143,6 +146,7 @@ const hover = defineTabTool({
     const { locator, resolved } = await tab.targetLocator(params);
     response.addCode(`await page.${resolved}.hover();`);
 
+    await tab.moveAgentSessionCursorToLocator(locator);
     await locator.hover(tab.actionTimeoutOptions);
   },
 });
@@ -167,6 +171,7 @@ const selectOption = defineTabTool({
     const { locator, resolved } = await tab.targetLocator(params);
     response.addCode(`await page.${resolved}.selectOption(${formatObject(params.values)});`);
 
+    await tab.pulseAgentSessionClickOnLocator(locator);
     await locator.selectOption(params.values, tab.actionTimeoutOptions);
   },
 });
@@ -202,6 +207,7 @@ const check = defineTabTool({
   handle: async (tab, params, response) => {
     const { locator, resolved } = await tab.targetLocator(params);
     response.addCode(`await page.${resolved}.check();`);
+    await tab.pulseAgentSessionClickOnLocator(locator);
     await locator.check(tab.actionTimeoutOptions);
   },
 });
@@ -220,6 +226,7 @@ const uncheck = defineTabTool({
   handle: async (tab, params, response) => {
     const { locator, resolved } = await tab.targetLocator(params);
     response.addCode(`await page.${resolved}.uncheck();`);
+    await tab.pulseAgentSessionClickOnLocator(locator);
     await locator.uncheck(tab.actionTimeoutOptions);
   },
 });

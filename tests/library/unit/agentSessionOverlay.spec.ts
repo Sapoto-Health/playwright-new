@@ -44,3 +44,36 @@ it('agent-session overlay host dispatch avoids page-realm reflective built-ins o
   expect(helperSrc).not.toContain('Reflect.get');
   expect(helperSrc).not.toContain('.call(helper');
 });
+
+it('agent-session overlay exposes token-gated cursor helpers from Tab', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/tab.ts'), 'utf8');
+
+  expect(src).toContain('async moveAgentSessionCursor');
+  expect(src).toContain('async pulseAgentSessionClick');
+  expect(src).toContain('async moveAgentSessionCursorToLocator');
+  expect(src).toContain('async pulseAgentSessionClickOnLocator');
+  expect(src).toContain('await locator.scrollIntoViewIfNeeded({ timeout })');
+  expect(src).toContain("helper.moveCursor(controlToken, x, y)");
+  expect(src).toContain("helper.pulseClick(controlToken, x, y)");
+});
+
+it('agent-session overlay cursor hooks are called by high-level and coordinate mouse tools', () => {
+  const snapshotSrc = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/snapshot.ts'), 'utf8');
+  const mouseSrc = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/mouse.ts'), 'utf8');
+
+  expect(snapshotSrc).toContain('await tab.pulseAgentSessionClickOnLocator(locator');
+  expect(snapshotSrc).toContain('await tab.moveAgentSessionCursorToLocator(locator');
+  expect(snapshotSrc).toContain('await tab.moveAgentSessionCursorToLocator(start.locator');
+  expect(snapshotSrc).toContain('await tab.moveAgentSessionCursorToLocator(end.locator');
+  expect(mouseSrc).toContain('await tab.moveAgentSessionCursor(params.x, params.y)');
+  expect(mouseSrc).toContain('await tab.pulseAgentSessionClick(params.x, params.y)');
+  expect(mouseSrc).toContain('await tab.moveAgentSessionCursor(params.startX, params.startY)');
+  expect(mouseSrc).toContain('await tab.moveAgentSessionCursor(params.endX, params.endY)');
+});
+
+it('agent-session overlay init script detection no longer depends on document-fetch markers', () => {
+  const contextSrc = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/context.ts'), 'utf8');
+
+  expect(contextSrc).toContain('__sapotoMcpStopRequested');
+  expect(contextSrc).not.toContain('__sapotoAgentSessionDocumentFetchOverlayConfigV1__');
+});

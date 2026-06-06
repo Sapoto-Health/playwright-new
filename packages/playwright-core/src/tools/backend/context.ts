@@ -485,7 +485,7 @@ export class Context {
 async function isAgentSessionOverlayBoundInitScript(scriptPath: string): Promise<boolean> {
   try {
     const content = await fs.promises.readFile(scriptPath, 'utf8');
-    return content.includes('__sapotoAgentSessionDocumentFetchOverlayConfigV1__=');
+    return content.includes('__sapotoMcpStopRequested');
   } catch (e) {
     debug('pw:tools:error')(e);
     return false;

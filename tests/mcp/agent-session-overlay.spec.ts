@@ -232,7 +232,8 @@ test('browser_take_ocr_friendly_screenshot hides the agent-session overlay durin
   expect((await overlayState(client)).display).toBe('block');
 });
 
-test('browser_pdf_save restores the agent-session overlay after capture', async ({ startClient, server }, testInfo) => {
+test('browser_pdf_save restores the agent-session overlay after capture', async ({ startClient, mcpBrowser, server }, testInfo) => {
+  test.skip(!!mcpBrowser && !['chromium', 'chrome', 'msedge'].includes(mcpBrowser), 'Save as PDF is only supported in Chromium.');
   const outputDir = testInfo.outputPath('output');
   const { client } = await startClient({
     config: { outputDir, capabilities: ['pdf'] },
