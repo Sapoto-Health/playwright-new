@@ -15,6 +15,7 @@
  */
 
 import { gracefullyCloseAll, gracefullyCloseSet } from '@utils/processLauncher';
+import { disposeAllBackends } from '../utils/mcp/server';
 import { testDebug } from './log';
 
 export function setupExitWatchdog() {
@@ -25,6 +26,7 @@ export function setupExitWatchdog() {
     isExiting = true;
     // eslint-disable-next-line no-restricted-properties
     setTimeout(() => process.exit(0), 15000);
+    await disposeAllBackends().catch(e => testDebug('backend cleanup failed: ' + e));
     testDebug('gracefully closing ' + gracefullyCloseSet.size);
     await gracefullyCloseAll();
     // eslint-disable-next-line no-restricted-properties

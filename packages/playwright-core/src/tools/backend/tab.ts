@@ -109,6 +109,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private _recentEventEntries: EventEntry[] = [];
   private _consoleLog: LogFile;
   private _disposables: Disposable[];
+  private _agentSessionOverlayInitScriptDisposable: Disposable | undefined;
   private _agentSessionOverlayScript: string | undefined;
   private _agentSessionOverlayControlToken: string | undefined;
   readonly actionTimeoutOptions: { timeout?: number; };
@@ -163,6 +164,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async dispose() {
+    await this._disposeAgentSessionOverlayInitScript();
     await this.removeAgentSessionOverlay();
     await disposeAll(this._disposables);
     this._consoleLog.stop();
@@ -197,7 +199,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     if (this._agentSessionOverlayScript) {
       try {
         const orderedInitScript = [...currentPageInitScripts, this._agentSessionOverlayScript].join('\n;\n');
-        this._disposables.push(await this.page.addInitScript({ content: orderedInitScript }));
+        this._agentSessionOverlayInitScriptDisposable = await this.page.addInitScript({ content: orderedInitScript });
         await this.page.evaluate(orderedInitScript).catch(() => {});
       } catch (e) {
         debug('pw:tools:error')(e);
@@ -245,6 +247,16 @@ export class Tab extends EventEmitter<TabEventsInterface> {
 
   async removeAgentSessionOverlay() {
     await this._evaluateAgentSessionOverlayHelper('remove');
+  }
+
+  private async _disposeAgentSessionOverlayInitScript() {
+    try {
+      await this._agentSessionOverlayInitScriptDisposable?.dispose();
+    } catch (e) {
+      debug('pw:tools:error')(e);
+    } finally {
+      this._agentSessionOverlayInitScriptDisposable = undefined;
+    }
   }
 
   async moveAgentSessionCursor(x: number, y: number) {

@@ -57,6 +57,29 @@ it('agent-session overlay exposes token-gated cursor helpers from Tab', () => {
   expect(src).toContain("helper.pulseClick(controlToken, x, y)");
 });
 
+it('agent-session overlay unregisters future injection before removing the current host on dispose', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/tab.ts'), 'utf8');
+  const disposeStart = src.indexOf('async dispose()');
+  const disposeEnd = src.indexOf('static forPage', disposeStart);
+  const disposeSrc = src.slice(disposeStart, disposeEnd);
+
+  expect(disposeSrc).toContain('await this._disposeAgentSessionOverlayInitScript()');
+  expect(disposeSrc.indexOf('await this._disposeAgentSessionOverlayInitScript()'))
+    .toBeLessThan(disposeSrc.indexOf('await this.removeAgentSessionOverlay()'));
+});
+
+it('mcp watchdog disposes Playwright backends before process shutdown', () => {
+  const watchdogSrc = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/mcp/watchdog.ts'), 'utf8');
+  const exitHandlerStart = watchdogSrc.indexOf('const handleExit = async');
+  const exitHandlerEnd = watchdogSrc.indexOf('process.stdin.on', exitHandlerStart);
+  const exitHandlerSrc = watchdogSrc.slice(exitHandlerStart, exitHandlerEnd);
+
+  expect(watchdogSrc).toContain("import { disposeAllBackends } from '../utils/mcp/server';");
+  expect(exitHandlerSrc).toContain('await disposeAllBackends()');
+  expect(exitHandlerSrc.indexOf('await disposeAllBackends()'))
+    .toBeLessThan(exitHandlerSrc.indexOf('await gracefullyCloseAll()'));
+});
+
 it('agent-session overlay cursor hooks are called by high-level and coordinate mouse tools', () => {
   const snapshotSrc = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/snapshot.ts'), 'utf8');
   const mouseSrc = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/mouse.ts'), 'utf8');
