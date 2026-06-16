@@ -581,6 +581,16 @@ test.describe('Unit G-ops flag wiring', () => {
     expect(config.allowedTools).toEqual(['browser_navigate', 'browser_click']);
   });
 
+  test('--action-cursor CLI sets browser.contextOptions.actionCursor', async () => {
+    const config = await resolveCLIConfigForMCP({ actionCursor: true }, emptyEnv) as any;
+    expect(config.browser.contextOptions.actionCursor).toEqual({ clickEffect: 'point' });
+  });
+
+  test('PLAYWRIGHT_MCP_ACTION_CURSOR=1 env sets browser.contextOptions.actionCursor', async () => {
+    const config = await resolveCLIConfigForMCP({}, { PLAYWRIGHT_MCP_ACTION_CURSOR: '1' }) as any;
+    expect(config.browser.contextOptions.actionCursor).toEqual({ clickEffect: 'point' });
+  });
+
   test('CLI --allowed-tools overrides PLAYWRIGHT_MCP_ALLOWED_TOOLS env', async () => {
     // Pins precedence — CLI is intentionally higher-priority than env, so
     // an embedder that hardcodes the env value can still be overridden ad hoc.

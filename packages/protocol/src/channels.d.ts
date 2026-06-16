@@ -446,6 +446,10 @@ export type AndroidDeviceLaunchBrowserParams = {
       cursor?: 'none' | 'pointer',
     },
   },
+  actionCursor?: {
+    duration?: number,
+    clickEffect?: 'none' | 'point',
+  },
   strictSelectors?: boolean,
   serviceWorkers?: 'allow' | 'block',
   selectorEngines?: SelectorEngine[],
@@ -517,6 +521,10 @@ export type AndroidDeviceLaunchBrowserOptions = {
       fontSize?: number,
       cursor?: 'none' | 'pointer',
     },
+  },
+  actionCursor?: {
+    duration?: number,
+    clickEffect?: 'none' | 'point',
   },
   strictSelectors?: boolean,
   serviceWorkers?: 'allow' | 'block',
@@ -964,6 +972,10 @@ export type BrowserNewContextParams = {
       cursor?: 'none' | 'pointer',
     },
   },
+  actionCursor?: {
+    duration?: number,
+    clickEffect?: 'none' | 'point',
+  },
   strictSelectors?: boolean,
   serviceWorkers?: 'allow' | 'block',
   selectorEngines?: SelectorEngine[],
@@ -1037,6 +1049,10 @@ export type BrowserNewContextOptions = {
       fontSize?: number,
       cursor?: 'none' | 'pointer',
     },
+  },
+  actionCursor?: {
+    duration?: number,
+    clickEffect?: 'none' | 'point',
   },
   strictSelectors?: boolean,
   serviceWorkers?: 'allow' | 'block',
@@ -1115,6 +1131,10 @@ export type BrowserNewContextForReuseParams = {
       cursor?: 'none' | 'pointer',
     },
   },
+  actionCursor?: {
+    duration?: number,
+    clickEffect?: 'none' | 'point',
+  },
   strictSelectors?: boolean,
   serviceWorkers?: 'allow' | 'block',
   selectorEngines?: SelectorEngine[],
@@ -1188,6 +1208,10 @@ export type BrowserNewContextForReuseOptions = {
       fontSize?: number,
       cursor?: 'none' | 'pointer',
     },
+  },
+  actionCursor?: {
+    duration?: number,
+    clickEffect?: 'none' | 'point',
   },
   strictSelectors?: boolean,
   serviceWorkers?: 'allow' | 'block',
@@ -1304,6 +1328,10 @@ export type BrowserContextInitializer = {
         fontSize?: number,
         cursor?: 'none' | 'pointer',
       },
+    },
+    actionCursor?: {
+      duration?: number,
+      clickEffect?: 'none' | 'point',
     },
     strictSelectors?: boolean,
     serviceWorkers?: 'allow' | 'block',
@@ -1963,6 +1991,10 @@ export type BrowserTypeLaunchPersistentContextParams = {
       cursor?: 'none' | 'pointer',
     },
   },
+  actionCursor?: {
+    duration?: number,
+    clickEffect?: 'none' | 'point',
+  },
   strictSelectors?: boolean,
   serviceWorkers?: 'allow' | 'block',
   selectorEngines?: SelectorEngine[],
@@ -2051,6 +2083,10 @@ export type BrowserTypeLaunchPersistentContextOptions = {
       fontSize?: number,
       cursor?: 'none' | 'pointer',
     },
+  },
+  actionCursor?: {
+    duration?: number,
+    clickEffect?: 'none' | 'point',
   },
   strictSelectors?: boolean,
   serviceWorkers?: 'allow' | 'block',
@@ -4103,6 +4139,8 @@ export interface PageChannel extends PageEventTarget, Channel {
   screencastSetOverlayVisible(params: PageScreencastSetOverlayVisibleParams, progress?: Progress): Promise<PageScreencastSetOverlayVisibleResult>;
   screencastShowActions(params: PageScreencastShowActionsParams, progress?: Progress): Promise<PageScreencastShowActionsResult>;
   screencastHideActions(params?: PageScreencastHideActionsParams, progress?: Progress): Promise<PageScreencastHideActionsResult>;
+  showActionCursor(params: PageShowActionCursorParams, progress?: Progress): Promise<PageShowActionCursorResult>;
+  hideActionCursor(params?: PageHideActionCursorParams, progress?: Progress): Promise<PageHideActionCursorResult>;
   screencastStart(params: PageScreencastStartParams, progress?: Progress): Promise<PageScreencastStartResult>;
   screencastStop(params?: PageScreencastStopParams, progress?: Progress): Promise<PageScreencastStopResult>;
   updateSubscription(params: PageUpdateSubscriptionParams, progress?: Progress): Promise<PageUpdateSubscriptionResult>;
@@ -4682,6 +4720,18 @@ export type PageScreencastShowActionsResult = void;
 export type PageScreencastHideActionsParams = {};
 export type PageScreencastHideActionsOptions = {};
 export type PageScreencastHideActionsResult = void;
+export type PageShowActionCursorParams = {
+  duration?: number,
+  clickEffect?: 'none' | 'point',
+};
+export type PageShowActionCursorOptions = {
+  duration?: number,
+  clickEffect?: 'none' | 'point',
+};
+export type PageShowActionCursorResult = void;
+export type PageHideActionCursorParams = {};
+export type PageHideActionCursorOptions = {};
+export type PageHideActionCursorResult = void;
 export type PageScreencastStartParams = {
   size?: {
     width: number,

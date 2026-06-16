@@ -18,6 +18,7 @@ import { createGuid } from '@utils/crypto';
 
 export type AgentSessionOverlayOptions = {
   statusText?: string;
+  cursor?: 'visible' | 'hidden';
   documentFetch?: AgentSessionOverlayDocumentFetchOptions;
 };
 
@@ -37,6 +38,16 @@ export type AgentSessionOverlayDocumentFetchOptions = {
 
 export const AGENT_SESSION_OVERLAY_HOST = 'sapoto-mcp-agent-session-overlay';
 export const AGENT_SESSION_OVERLAY_GLOBAL = '__sapotoMcpAgentSessionOverlayV1';
+export const AGENT_SESSION_OVERLAY_OWNED_MARKER = '__sapotoMcpAgentSessionOverlayOwnedV1';
+
+export function isAgentSessionOverlayBoundInitScriptContent(content: string): boolean {
+  return [
+    '__sapotoMcpStopRequested',
+    AGENT_SESSION_OVERLAY_HOST,
+    AGENT_SESSION_OVERLAY_GLOBAL,
+    AGENT_SESSION_OVERLAY_OWNED_MARKER,
+  ].some(marker => content.includes(marker));
+}
 
 export function createAgentSessionOverlayScript(options: AgentSessionOverlayOptions = {}): AgentSessionOverlayScript {
   const controlToken = createGuid();
@@ -47,10 +58,13 @@ export function createAgentSessionOverlayScript(options: AgentSessionOverlayOpti
 }
 
 export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, controlToken = createGuid()): string {
+  const cursorVisible = _options.cursor !== 'hidden';
   return `(() => {
   const HOST_TAG = ${JSON.stringify(AGENT_SESSION_OVERLAY_HOST)};
   const GLOBAL_NAME = ${JSON.stringify(AGENT_SESSION_OVERLAY_GLOBAL)};
+  const OWNED_MARKER = ${JSON.stringify(AGENT_SESSION_OVERLAY_OWNED_MARKER)};
   const CONTROL_TOKEN = ${JSON.stringify(controlToken)};
+  const CURSOR_VISIBLE = ${JSON.stringify(cursorVisible)};
 
   try {
     if (window !== window.top)
@@ -68,6 +82,19 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
   let removed = false;
   let treeObserver;
   let hostObserver;
+
+  try {
+    const existingHelper = window[GLOBAL_NAME];
+    if (existingHelper && existingHelper[OWNED_MARKER] === true) {
+      if (typeof existingHelper.ensure === 'function')
+        existingHelper.ensure();
+      const hosts = Array.from(document.querySelectorAll(HOST_TAG));
+      for (let i = 1; i < hosts.length; ++i)
+        hosts[i].remove();
+      return;
+    }
+  } catch (_) {
+  }
 
   const setImportant = (element, name, value) => {
     try {
@@ -114,12 +141,19 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
     if (host.parentNode !== parent)
       parent.appendChild(host);
     restoreHostStyles();
+    try {
+      for (const existingHost of Array.from(document.querySelectorAll(HOST_TAG))) {
+        if (existingHost !== host)
+          existingHost.remove();
+      }
+    } catch (_) {
+    }
   };
 
   const installStyles = () => {
     const css = \`
       @media print { :host { display: none !important; } }
-      .root, .glow, .pulse-layer {
+      .root, .glow, .glow-inner, .pulse-layer {
         position: fixed !important;
         inset: 0 !important;
         width: 100vw !important;
@@ -129,8 +163,14 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       }
       .glow {
         box-shadow:
-          inset 0 0 0 3px rgba(255, 122, 24, 0.98),
-          inset 0 0 22px rgba(255, 122, 24, 0.62) !important;
+          inset 0 0 0 2px rgba(212, 160, 23, 0.94),
+          inset 0 0 18px rgba(240, 192, 64, 0.42) !important;
+      }
+      .glow-inner {
+        box-shadow:
+          inset 0 0 0 1px rgba(17, 24, 39, 0.62),
+          inset 0 0 44px rgba(240, 192, 64, 0.22) !important;
+        opacity: 0.86 !important;
       }
       .cursor {
         position: fixed !important;
@@ -140,10 +180,10 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
         height: 18px !important;
         margin: -2px 0 0 -2px !important;
         border-radius: 999px !important;
-        background: rgba(255, 122, 24, 0.96) !important;
+        background: rgba(17, 24, 39, 0.96) !important;
         box-shadow:
-          0 0 0 2px rgba(255, 255, 255, 0.92),
-          0 0 18px rgba(255, 122, 24, 0.72) !important;
+          0 0 0 2px rgba(212, 160, 23, 0.96),
+          0 0 18px rgba(240, 192, 64, 0.72) !important;
         opacity: 0 !important;
         pointer-events: none !important;
         transform: translate3d(-9999px, -9999px, 0) !important;
@@ -160,15 +200,28 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
         height: 34px !important;
         margin: -17px 0 0 -17px !important;
         border-radius: 999px !important;
-        border: 3px solid rgba(255, 122, 24, 0.92) !important;
-        background: rgba(255, 122, 24, 0.14) !important;
+        border: 3px solid rgba(212, 160, 23, 0.92) !important;
+        background: rgba(240, 192, 64, 0.14) !important;
         pointer-events: none !important;
         transform: translate3d(-9999px, -9999px, 0) scale(0.7) !important;
         animation: sapoto-click-pulse 520ms ease-out forwards !important;
       }
       @keyframes sapoto-click-pulse {
-        0% { opacity: 1; transform: var(--sapoto-pulse-transform) scale(0.65); }
-        100% { opacity: 0; transform: var(--sapoto-pulse-transform) scale(1.8); }
+        0% {
+          opacity: 1;
+          transform: var(--sapoto-pulse-transform) scale(0.65);
+          box-shadow: 0 0 0 0 rgba(240, 192, 64, 0.52);
+        }
+        100% {
+          opacity: 0;
+          transform: var(--sapoto-pulse-transform) scale(1.95);
+          box-shadow: 0 0 0 18px rgba(240, 192, 64, 0);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .glow, .glow-inner, .pulse {
+          animation: none !important;
+        }
       }
     \`;
     try {
@@ -196,6 +249,8 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
   };
 
   const setCursorPosition = (x, y) => {
+    if (!CURSOR_VISIBLE)
+      return true;
     if (!cursor)
       return false;
     const safeX = toFiniteCoordinate(x);
@@ -212,6 +267,8 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
   };
 
   const pulseClick = (x, y) => {
+    if (!CURSOR_VISIBLE)
+      return true;
     if (!pulseLayer)
       return false;
     const safeX = toFiniteCoordinate(x);
@@ -247,23 +304,35 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
     glow.className = 'glow';
     root.appendChild(glow);
 
-    pulseLayer = document.createElement('div');
-    pulseLayer.className = 'pulse-layer';
-    root.appendChild(pulseLayer);
+    const glowInner = document.createElement('div');
+    glowInner.className = 'glow-inner';
+    root.appendChild(glowInner);
 
-    cursor = document.createElement('div');
-    cursor.className = 'cursor';
-    root.appendChild(cursor);
+    if (CURSOR_VISIBLE) {
+      pulseLayer = document.createElement('div');
+      pulseLayer.className = 'pulse-layer';
+      root.appendChild(pulseLayer);
 
-    shadow.appendChild(root);
+      cursor = document.createElement('div');
+      cursor.className = 'cursor';
+      root.appendChild(cursor);
+    }
+
     try {
       glow.animate([
-        { boxShadow: 'inset 0 0 0 3px rgba(255, 122, 24, 0.98), inset 0 0 18px rgba(255, 122, 24, 0.48)' },
-        { boxShadow: 'inset 0 0 0 5px rgba(255, 122, 24, 0.98), inset 0 0 30px rgba(255, 122, 24, 0.78)' },
-        { boxShadow: 'inset 0 0 0 3px rgba(255, 122, 24, 0.98), inset 0 0 18px rgba(255, 122, 24, 0.48)' },
+        { boxShadow: 'inset 0 0 0 2px rgba(212, 160, 23, 0.94), inset 0 0 18px rgba(240, 192, 64, 0.36)' },
+        { boxShadow: 'inset 0 0 0 4px rgba(212, 160, 23, 0.98), inset 0 0 34px rgba(240, 192, 64, 0.62)' },
+        { boxShadow: 'inset 0 0 0 2px rgba(212, 160, 23, 0.94), inset 0 0 18px rgba(240, 192, 64, 0.36)' },
       ], { duration: 2000, iterations: Infinity, easing: 'ease-in-out' });
+      glowInner.animate([
+        { opacity: 0.58 },
+        { opacity: 0.96 },
+        { opacity: 0.58 },
+      ], { duration: 2200, iterations: Infinity, easing: 'ease-in-out' });
     } catch (_) {
     }
+
+    shadow.appendChild(root);
   };
 
   const observe = () => {
@@ -282,6 +351,7 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
   const isAuthorized = token => token === CONTROL_TOKEN;
 
   const api = {
+    [OWNED_MARKER]: true,
     ensure: () => appendHost(),
     hide: token => {
       if (!isAuthorized(token))

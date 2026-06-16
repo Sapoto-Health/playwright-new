@@ -202,6 +202,7 @@ export class Mouse {
   private _keyboard: Keyboard;
   private _x = 0;
   private _y = 0;
+  private _hasPoint = false;
   private _lastButton: 'none' | types.MouseButton = 'none';
   private _buttons = new Set<types.MouseButton>();
   private _raw: RawMouse;
@@ -214,7 +215,7 @@ export class Mouse {
   }
 
   private _currentPoint() {
-    return { x: this._x, y: this._y };
+    return this._hasPoint ? { x: this._x, y: this._y } : undefined;
   }
 
   async apiMove(progress: Progress, x: number, y: number, options: { steps?: number, forClick?: boolean } = {}) {
@@ -228,6 +229,7 @@ export class Mouse {
     const fromY = this._y;
     this._x = x;
     this._y = y;
+    this._hasPoint = true;
     for (let i = 1; i <= steps; i++) {
       const middleX = fromX + (x - fromX) * (i / steps);
       const middleY = fromY + (y - fromY) * (i / steps);
@@ -293,7 +295,7 @@ export class Mouse {
   }
 
   async apiWheel(progress: Progress, deltaX: number, deltaY: number) {
-    await progress.race(this._page.instrumentation.onBeforeInputAction(this._page, progress.metadata));
+    await progress.race(this._page.instrumentation.onBeforeInputAction(this._page, progress.metadata, this._currentPoint(), undefined, 'scroll'));
     await this._raw.wheel(progress, this._x, this._y, this._buttons, this._keyboard._modifiers(), deltaX, deltaY);
   }
 }

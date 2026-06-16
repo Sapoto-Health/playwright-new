@@ -296,6 +296,8 @@ export const methodMetainfo = new Map<string, MethodMetainfo>([
   ['Page.screencastSetOverlayVisible', { title: 'Set overlay visibility', group: 'configuration', }],
   ['Page.screencastShowActions', { title: 'Show actions', group: 'configuration', }],
   ['Page.screencastHideActions', { title: 'Remove actions', group: 'configuration', }],
+  ['Page.showActionCursor', { title: 'Show action cursor', group: 'configuration', }],
+  ['Page.hideActionCursor', { title: 'Hide action cursor', group: 'configuration', }],
   ['Page.screencastStart', { title: 'Start screencast', group: 'configuration', }],
   ['Page.screencastStop', { title: 'Stop screencast', group: 'configuration', }],
   ['Page.updateSubscription', { internal: true, }],

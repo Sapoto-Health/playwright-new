@@ -391,6 +391,14 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
     this._page.screencast.hideActions();
   }
 
+  async showActionCursor(params: channels.PageShowActionCursorParams): Promise<channels.PageShowActionCursorResult> {
+    this._page.actionCursor.show({ duration: params.duration, clickEffect: params.clickEffect });
+  }
+
+  async hideActionCursor(): Promise<channels.PageHideActionCursorResult> {
+    await this._page.actionCursor.hide();
+  }
+
   async screencastStart(params: channels.PageScreencastStartParams, progress?: Progress): Promise<channels.PageScreencastStartResult> {
     if (this._screencastClient || this._videoRecorder)
       throw new Error('Screencast is already running');

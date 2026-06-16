@@ -3265,6 +3265,13 @@ export interface Page {
   }): Promise<null|Response>;
 
   /**
+   * Hides the action cursor overlay on this page and disables future action cursor annotations until
+   * [page.showActionCursor([options])](https://playwright.dev/docs/api/class-page#page-show-action-cursor) is called
+   * again.
+   */
+  hideActionCursor(): Promise<void>;
+
+  /**
    * Hide all locator highlight overlays previously added by
    * [locator.highlight([options])](https://playwright.dev/docs/api/class-locator#locator-highlight) on this page.
    */
@@ -4509,6 +4516,26 @@ export interface Page {
      */
     height: number;
   }): Promise<void>;
+
+  /**
+   * Enables a visible cursor overlay for Playwright pointer actions on this page. Returns a disposable that hides the
+   * action cursor when disposed.
+   *
+   * The action cursor is intended for headed Chromium runs where observers need to follow pointer movement. It is
+   * hidden from screenshots by default.
+   * @param options
+   */
+  showActionCursor(options?: {
+    /**
+     * Click effect rendered at the action point. Defaults to `"point"`.
+     */
+    clickEffect?: "none"|"point";
+
+    /**
+     * How long the click marker stays visible in milliseconds. Defaults to `800`.
+     */
+    duration?: number;
+  }): Promise<Disposable>;
 
   /**
    * **NOTE** Use locator-based [locator.tap([options])](https://playwright.dev/docs/api/class-locator#locator-tap) instead. Read
@@ -10176,6 +10203,22 @@ export interface Browser {
     acceptDownloads?: boolean;
 
     /**
+     * When set to `true` or an options object, renders a visible cursor overlay for Playwright pointer actions in headed
+     * Chromium. The cursor moves smoothly between pointer action points and is hidden from screenshots by default.
+     */
+    actionCursor?: boolean|{
+      /**
+       * How long the click marker stays visible in milliseconds. Defaults to `800`.
+       */
+      duration?: number;
+
+      /**
+       * Click effect rendered at the action point. Defaults to `"point"`.
+       */
+      clickEffect?: "none"|"point";
+    };
+
+    /**
      * When using [page.goto(url[, options])](https://playwright.dev/docs/api/class-page#page-goto),
      * [page.route(url, handler[, options])](https://playwright.dev/docs/api/class-page#page-route),
      * [page.waitForURL(url[, options])](https://playwright.dev/docs/api/class-page#page-wait-for-url),
@@ -15536,6 +15579,22 @@ export interface BrowserType<Unused = {}> {
      * Whether to automatically download all the attachments. Defaults to `true` where all the downloads are accepted.
      */
     acceptDownloads?: boolean;
+
+    /**
+     * When set to `true` or an options object, renders a visible cursor overlay for Playwright pointer actions in headed
+     * Chromium. The cursor moves smoothly between pointer action points and is hidden from screenshots by default.
+     */
+    actionCursor?: boolean|{
+      /**
+       * How long the click marker stays visible in milliseconds. Defaults to `800`.
+       */
+      duration?: number;
+
+      /**
+       * Click effect rendered at the action point. Defaults to `"point"`.
+       */
+      clickEffect?: "none"|"point";
+    };
 
     /**
      * **NOTE** Use custom browser args at your own risk, as some of them may break Playwright functionality.
@@ -22930,6 +22989,22 @@ export interface AndroidDevice {
     acceptDownloads?: boolean;
 
     /**
+     * When set to `true` or an options object, renders a visible cursor overlay for Playwright pointer actions in headed
+     * Chromium. The cursor moves smoothly between pointer action points and is hidden from screenshots by default.
+     */
+    actionCursor?: boolean|{
+      /**
+       * How long the click marker stays visible in milliseconds. Defaults to `800`.
+       */
+      duration?: number;
+
+      /**
+       * Click effect rendered at the action point. Defaults to `"point"`.
+       */
+      clickEffect?: "none"|"point";
+    };
+
+    /**
      * **NOTE** Use custom browser args at your own risk, as some of them may break Playwright functionality.
      *
      * Additional arguments to pass to the browser instance. The list of Chromium flags can be found
@@ -24094,6 +24169,22 @@ export interface BrowserContextOptions {
    * Whether to automatically download all the attachments. Defaults to `true` where all the downloads are accepted.
    */
   acceptDownloads?: boolean;
+
+  /**
+   * When set to `true` or an options object, renders a visible cursor overlay for Playwright pointer actions in headed
+   * Chromium. The cursor moves smoothly between pointer action points and is hidden from screenshots by default.
+   */
+  actionCursor?: boolean|{
+    /**
+     * How long the click marker stays visible in milliseconds. Defaults to `800`.
+     */
+    duration?: number;
+
+    /**
+     * Click effect rendered at the action point. Defaults to `"point"`.
+     */
+    clickEffect?: "none"|"point";
+  };
 
   /**
    * When using [page.goto(url[, options])](https://playwright.dev/docs/api/class-page#page-goto),

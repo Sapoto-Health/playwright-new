@@ -569,6 +569,16 @@ Page:
       title: Remove actions
       group: configuration
 
+    showActionCursor:
+      title: Show action cursor
+      group: configuration
+      parameters:
+        $mixin: ActionCursorOptions
+
+    hideActionCursor:
+      title: Hide action cursor
+      group: configuration
+
     screencastStart:
       title: Start screencast
       group: configuration

@@ -100,27 +100,53 @@ x-pw-highlight {
 
 x-pw-action-point {
   position: absolute;
-  width: 20px;
-  height: 20px;
-  background: red;
-  border-radius: 10px;
-  margin: -10px 0 0 -10px;
+  width: 18px;
+  height: 18px;
+  background: transparent;
+  border: 2px solid rgba(212, 160, 23, 0.98);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.78), 0 0 16px rgba(240, 192, 64, 0.46);
+  box-sizing: border-box;
+  margin: -9px 0 0 -9px;
   z-index: 2;
 }
 
 x-pw-action-cursor {
   position: absolute;
-  width: 18px;
-  height: 22px;
+  width: 22px;
+  height: 26px;
   pointer-events: none;
   z-index: 4;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+  filter: drop-shadow(0 2px 3px rgba(17, 24, 39, 0.42)) drop-shadow(0 0 8px rgba(240, 192, 64, 0.42));
+  margin: -1px 0 0 -1px;
+  will-change: left, top, transform;
 }
 
 x-pw-action-cursor svg {
+  position: absolute;
   width: 100%;
   height: 100%;
-  position: static;
+  overflow: visible;
+}
+
+x-pw-action-cursor [data-cursor-shape="scroll"] {
+  display: none;
+}
+
+x-pw-action-cursor[data-mode="scroll"] {
+  margin: -13px 0 0 -11px;
+}
+
+x-pw-action-cursor[data-mode="scroll"] [data-cursor-shape="pointer"] {
+  display: none;
+}
+
+x-pw-action-cursor[data-mode="scroll"] [data-cursor-shape="scroll"] {
+  display: block;
+}
+
+x-pw-action-cursor[data-pressed="true"] {
+  transform: scale(0.92);
 }
 
 x-pw-title {
@@ -145,6 +171,33 @@ x-pw-user-overlays, x-pw-user-overlay {
 @keyframes pw-fade-out {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+
+@keyframes pw-action-gold-pulse {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.72);
+    box-shadow:
+      0 0 0 1px rgba(17, 24, 39, 0.78),
+      0 0 0 0 rgba(240, 192, 64, 0.52),
+      0 0 14px rgba(240, 192, 64, 0.42);
+  }
+  62% {
+    opacity: 0.56;
+    transform: scale(1.85);
+    box-shadow:
+      0 0 0 1px rgba(17, 24, 39, 0.26),
+      0 0 0 12px rgba(240, 192, 64, 0.16),
+      0 0 24px rgba(240, 192, 64, 0.42);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.35);
+    box-shadow:
+      0 0 0 1px rgba(17, 24, 39, 0),
+      0 0 0 20px rgba(240, 192, 64, 0),
+      0 0 28px rgba(240, 192, 64, 0);
+  }
 }
 
 x-pw-separator {
