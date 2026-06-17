@@ -131,6 +131,7 @@ const longhandTypes: Record<string, LonghandType> = {
 
   // browser.contextOptions
   'browser.contextOptions.acceptDownloads': 'boolean',
+  'browser.contextOptions.actionCursor': 'boolean',
   'browser.contextOptions.baseURL': 'string',
   'browser.contextOptions.bypassCSP': 'boolean',
   'browser.contextOptions.colorScheme': 'string',

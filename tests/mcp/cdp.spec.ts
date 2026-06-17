@@ -15,7 +15,9 @@
  */
 
 import { spawnSync } from 'child_process';
-import { test, expect, mcpServerPath } from './fixtures';
+import { test, expect, mcpServerPath, parseResponse } from './fixtures';
+
+const helloWorldSnapshot = /- generic \[active\] \[ref=e1\](?: \[box=[^\]]+\])?: Hello, world!/;
 
 test.describe.configure({
   retries: 1,
@@ -28,7 +30,7 @@ test('cdp server', async ({ cdpServer, startClient, server }) => {
     name: 'browser_navigate',
     arguments: { url: server.HELLO_WORLD },
   })).toHaveResponse({
-    snapshot: expect.stringContaining(`- generic [active] [ref=e1]: Hello, world!`),
+    snapshot: expect.stringMatching(helloWorldSnapshot),
   });
 });
 
@@ -55,8 +57,93 @@ test('cdp server reuse tab', async ({ cdpServer, startClient, server }) => {
   })).toHaveResponse({
     page: `- Page URL: ${server.HELLO_WORLD}
 - Page Title: Title`,
-    inlineSnapshot: `- generic [active] [ref=e1]: Hello, world!`,
+    inlineSnapshot: expect.stringMatching(helloWorldSnapshot),
   });
+});
+
+test('cdp server action cursor applies to existing and future pages', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Action Cursor</title>
+    <button>First</button>
+    <script>
+      document.querySelector('button').addEventListener('click', () => {
+        document.querySelector('button').textContent = 'Clicked';
+      });
+    </script>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const [existingPage] = browserContext.pages();
+  await existingPage.goto(server.PREFIX);
+
+  const { client } = await startClient({
+    args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--action-cursor'],
+  });
+
+  await client.callTool({ name: 'browser_snapshot' });
+  await expect(existingPage.locator('x-pw-action-cursor')).toBeHidden();
+  await client.callTool({
+    name: 'browser_click',
+    arguments: { element: 'First button', target: 'e2' },
+  });
+  await expect(existingPage.locator('x-pw-action-cursor')).toBeVisible();
+  await expect(existingPage.locator('x-pw-action-point')).toBeVisible();
+  await expect(existingPage.locator('x-pw-action-point')).toHaveCSS('border-color', 'rgba(212, 160, 23, 0.98)');
+
+  const futurePage = await browserContext.newPage();
+  await futurePage.goto(server.PREFIX);
+  await client.callTool({
+    name: 'browser_tabs',
+    arguments: { action: 'select', index: 1 },
+  });
+  await client.callTool({ name: 'browser_snapshot' });
+  await expect(futurePage.locator('x-pw-action-cursor')).toBeHidden();
+  await client.callTool({
+    name: 'browser_click',
+    arguments: { element: 'First button', target: 'e2' },
+  });
+  await expect(futurePage.locator('x-pw-action-cursor')).toBeVisible();
+  await expect(futurePage.locator('x-pw-action-point')).toBeVisible();
+});
+
+test('cdp server action cursor does not render at constructor default on first wheel', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Action Cursor Wheel</title>
+    <main style="height: 2000px">Wheel target</main>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const { client } = await startClient({
+    args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--action-cursor', '--caps=vision'],
+  });
+
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: { url: server.PREFIX },
+  });
+  const [page] = browserContext.pages();
+  await expect(page.locator('x-pw-action-cursor')).toBeHidden();
+
+  expect(await client.callTool({
+    name: 'browser_mouse_wheel',
+    arguments: { deltaX: 0, deltaY: 240 },
+  })).toHaveResponse({
+    code: expect.stringContaining('await page.mouse.wheel(0, 240);'),
+  });
+
+  await expect(page.locator('x-pw-action-cursor')).toBeHidden();
+  const state = await client.callTool({
+    name: 'browser_evaluate',
+    arguments: {
+      function: `() => ({
+        overlayCount: document.querySelectorAll('sapoto-mcp-agent-session-overlay').length,
+        actionCursorCount: document.querySelectorAll('x-pw-action-cursor').length,
+      })`,
+    },
+  });
+  const parsedState = JSON.parse(parseResponse(state, test.info().outputPath()).result!);
+  expect(parsedState.overlayCount).toBe(1);
+  expect(parsedState.actionCursorCount).toBe(0);
 });
 
 test('should throw connection error and allow re-connecting', async ({ cdpServer, startClient, server }) => {
@@ -79,7 +166,7 @@ test('should throw connection error and allow re-connecting', async ({ cdpServer
     name: 'browser_navigate',
     arguments: { url: server.PREFIX },
   })).toHaveResponse({
-    snapshot: expect.stringContaining(`- generic [active] [ref=e1]: Hello, world!`),
+    snapshot: expect.stringMatching(helloWorldSnapshot),
   });
 });
 

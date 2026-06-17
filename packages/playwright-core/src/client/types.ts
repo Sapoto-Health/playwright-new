@@ -62,7 +62,12 @@ export type ClientCertificate = {
   passphrase?: string;
 };
 
-export type BrowserContextOptions = Omit<channels.BrowserNewContextOptions, 'viewport' | 'noDefaultViewport' | 'extraHTTPHeaders' | 'clientCertificates' | 'storageState' | 'recordHar' | 'colorScheme' | 'reducedMotion' | 'forcedColors' | 'acceptDownloads' | 'contrast' | 'agent'> & {
+export type ActionCursorOptions = {
+  duration?: number,
+  clickEffect?: 'none' | 'point',
+};
+
+export type BrowserContextOptions = Omit<channels.BrowserNewContextOptions, 'viewport' | 'noDefaultViewport' | 'extraHTTPHeaders' | 'clientCertificates' | 'storageState' | 'recordHar' | 'colorScheme' | 'reducedMotion' | 'forcedColors' | 'acceptDownloads' | 'contrast' | 'actionCursor' | 'agent'> & {
   viewport?: Size | null;
   extraHTTPHeaders?: Headers;
   logger?: Logger;
@@ -84,6 +89,7 @@ export type BrowserContextOptions = Omit<channels.BrowserNewContextOptions, 'vie
   forcedColors?: 'active' | 'none' | null;
   contrast?: 'more' | 'no-preference' | null;
   acceptDownloads?: boolean;
+  actionCursor?: boolean | ActionCursorOptions;
   clientCertificates?: ClientCertificate[];
 };
 

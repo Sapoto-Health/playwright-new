@@ -50,7 +50,7 @@ import type { APIRequestContext } from './fetch';
 import type { WaitForNavigationOptions } from './frame';
 import type { FrameLocator, Locator, LocatorOptions } from './locator';
 import type { RouteHandlerCallback, WebSocketRouteHandlerCallback } from './network';
-import type { FilePayload, Headers, LifecycleEvent, SelectOption, SelectOptionOptions, Size, TimeoutOptions, WaitForEventOptions, WaitForFunctionOptions } from './types';
+import type { ActionCursorOptions, FilePayload, Headers, LifecycleEvent, SelectOption, SelectOptionOptions, Size, TimeoutOptions, WaitForEventOptions, WaitForFunctionOptions } from './types';
 import type * as structs from '../../types/structs';
 import type * as api from '../../types/types';
 import type { ByRoleOptions } from '@isomorphic/locatorUtils';
@@ -176,6 +176,15 @@ export class Page extends ChannelOwner<channels.PageChannel> implements api.Page
       [Events.Page.RequestFailed, 'requestFailed'],
       [Events.Page.FileChooser, 'fileChooser'],
     ]));
+  }
+
+  async showActionCursor(options: ActionCursorOptions = {}): Promise<DisposableStub> {
+    await this._channel.showActionCursor(options);
+    return new DisposableStub(() => this._channel.hideActionCursor());
+  }
+
+  async hideActionCursor(): Promise<void> {
+    await this._channel.hideActionCursor();
   }
 
   private _onFrameAttached(frame: Frame) {

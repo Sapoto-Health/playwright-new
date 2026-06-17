@@ -301,6 +301,8 @@ export class Screenshotter {
     if ((options as any).__testHookBeforeScreenshot)
       await progress.race((options as any).__testHookBeforeScreenshot());
 
+    await progress.race(this._page.actionCursor.hideInPage());
+
     const shouldSetDefaultBackground = options.omitBackground && format === 'png';
     if (shouldSetDefaultBackground)
       await progress.race(this._page.delegate.setBackgroundColor({ r: 0, g: 0, b: 0, a: 0 }));

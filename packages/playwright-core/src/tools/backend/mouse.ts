@@ -35,6 +35,7 @@ const mouseMove = defineTabTool({
     response.addCode(`// Move mouse to (${params.x}, ${params.y})`);
     response.addCode(`await page.mouse.move(${params.x}, ${params.y});`);
 
+    await tab.moveAgentSessionCursor(params.x, params.y);
     await tab.page.mouse.move(params.x, params.y);
   },
 });
@@ -135,6 +136,7 @@ const mouseClick = defineTabTool({
     response.addCode(`// Click mouse at coordinates (${params.x}, ${params.y})`);
     response.addCode(`await page.mouse.click(${params.x}, ${params.y}${optionsArg});`);
 
+    await tab.pulseAgentSessionClick(params.x, params.y);
     await tab.waitForCompletion(async () => {
       await tab.page.mouse.click(params.x, params.y, options);
     });
@@ -165,12 +167,14 @@ const mouseDrag = defineTabTool({
     response.addCode(`await page.mouse.move(${params.endX}, ${params.endY});`);
     response.addCode(`await page.mouse.up();`);
 
+    await tab.moveAgentSessionCursor(params.startX, params.startY);
     await tab.waitForCompletion(async () => {
       await tab.page.mouse.move(params.startX, params.startY);
       await tab.page.mouse.down();
       await tab.page.mouse.move(params.endX, params.endY);
       await tab.page.mouse.up();
     });
+    await tab.moveAgentSessionCursor(params.endX, params.endY);
   },
 });
 

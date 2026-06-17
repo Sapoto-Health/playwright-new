@@ -28,12 +28,11 @@ import { LogFile } from './logFile';
 import { ModalState } from './tool';
 import { handleDialog } from './dialogs';
 import { uploadFile } from './files';
-import { AGENT_SESSION_OVERLAY_GLOBAL, createAgentSessionOverlayScript } from './agentSessionOverlay';
+import { AGENT_SESSION_OVERLAY_GLOBAL, isAgentSessionOverlayBoundInitScriptContent } from './agentSessionOverlay';
 
 import type { Disposable } from '@isomorphic/disposable';
 import type { Context, ContextConfig } from './context';
 import type * as playwright from '../../..';
-import type { AgentSessionOverlayDocumentFetchOptions } from './agentSessionOverlay';
 
 const TabEvents = {
   modalState: 'modalState'
@@ -110,6 +109,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private _recentEventEntries: EventEntry[] = [];
   private _consoleLog: LogFile;
   private _disposables: Disposable[];
+  private _agentSessionOverlayInitScriptDisposable: Disposable | undefined;
   private _agentSessionOverlayScript: string | undefined;
   private _agentSessionOverlayControlToken: string | undefined;
   readonly actionTimeoutOptions: { timeout?: number; };
@@ -164,6 +164,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async dispose() {
+    await this._disposeAgentSessionOverlayInitScript();
     await this.removeAgentSessionOverlay();
     await disposeAll(this._disposables);
     this._consoleLog.stop();
@@ -190,6 +191,8 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     for (const initScript of this.context.config.browser?.initScript || []) {
       try {
         const content = await fs.promises.readFile(path.resolve(this.context.options.cwd, initScript), 'utf8');
+        if (isAgentSessionOverlayBoundInitScriptContent(content))
+          continue;
         currentPageInitScripts.push(content);
       } catch (e) {
         debug('pw:tools:error')(e);
@@ -197,14 +200,8 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     }
     if (this._agentSessionOverlayScript) {
       try {
-        const documentFetch = extractAgentSessionDocumentFetchConfig(currentPageInitScripts);
-        if (documentFetch) {
-          const overlayScript = createAgentSessionOverlayScript({ documentFetch });
-          this._agentSessionOverlayScript = overlayScript.content;
-          this._agentSessionOverlayControlToken = overlayScript.controlToken;
-        }
         const orderedInitScript = [...currentPageInitScripts, this._agentSessionOverlayScript].join('\n;\n');
-        this._disposables.push(await this.page.addInitScript({ content: orderedInitScript }));
+        this._agentSessionOverlayInitScriptDisposable = await this.page.addInitScript({ content: orderedInitScript });
         await this.page.evaluate(orderedInitScript).catch(() => {});
       } catch (e) {
         debug('pw:tools:error')(e);
@@ -254,6 +251,50 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     await this._evaluateAgentSessionOverlayHelper('remove');
   }
 
+  private async _disposeAgentSessionOverlayInitScript() {
+    try {
+      await this._agentSessionOverlayInitScriptDisposable?.dispose();
+    } catch (e) {
+      debug('pw:tools:error')(e);
+    } finally {
+      this._agentSessionOverlayInitScriptDisposable = undefined;
+    }
+  }
+
+  async moveAgentSessionCursor(x: number, y: number) {
+    if (!this._isAgentSessionOverlayCursorVisible())
+      return;
+    await this._evaluateAgentSessionOverlayCursorHelper('moveCursor', x, y);
+  }
+
+  async pulseAgentSessionClick(x: number, y: number) {
+    if (!this._isAgentSessionOverlayCursorVisible())
+      return;
+    await this._evaluateAgentSessionOverlayCursorHelper('pulseClick', x, y);
+  }
+
+  async moveAgentSessionCursorToLocator(locator: playwright.Locator) {
+    if (!this._isAgentSessionOverlayCursorVisible())
+      return;
+    const point = await this._agentSessionLocatorCenter(locator);
+    if (!point)
+      return;
+    await this.moveAgentSessionCursor(point.x, point.y);
+  }
+
+  async pulseAgentSessionClickOnLocator(locator: playwright.Locator) {
+    if (!this._isAgentSessionOverlayCursorVisible())
+      return;
+    const point = await this._agentSessionLocatorCenter(locator);
+    if (!point)
+      return;
+    await this.pulseAgentSessionClick(point.x, point.y);
+  }
+
+  private _isAgentSessionOverlayCursorVisible(): boolean {
+    return !this.context.config.browser?.contextOptions?.actionCursor;
+  }
+
   private async _evaluateAgentSessionOverlayHelper(method: 'hide' | 'show' | 'remove') {
     try {
       await this._initializedPromise;
@@ -280,6 +321,50 @@ export class Tab extends EventEmitter<TabEventsInterface> {
             break;
         }
       }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, method, controlToken: this._agentSessionOverlayControlToken });
+    } catch (e) {
+      debug('pw:tools:error')(e);
+    }
+  }
+
+  private async _agentSessionLocatorCenter(locator: playwright.Locator): Promise<{ x: number, y: number } | undefined> {
+    try {
+      await this._initializedPromise;
+      const timeout = Math.min(this.context.config.timeouts?.action ?? 500, 500);
+      await locator.scrollIntoViewIfNeeded({ timeout }).catch(e => debug('pw:tools:error')(e));
+      const box = await locator.boundingBox({ timeout });
+      if (!box)
+        return undefined;
+      return {
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2,
+      };
+    } catch (e) {
+      debug('pw:tools:error')(e);
+      return undefined;
+    }
+  }
+
+  private async _evaluateAgentSessionOverlayCursorHelper(method: 'moveCursor' | 'pulseClick', x: number, y: number) {
+    try {
+      await this._initializedPromise;
+      await this.page.evaluate(({ globalName, method, controlToken, x, y }) => {
+        const helper = (window as unknown as Record<string, {
+          moveCursor?: (controlToken: string | undefined, x: number, y: number) => unknown;
+          pulseClick?: (controlToken: string | undefined, x: number, y: number) => unknown;
+        } | undefined>)[globalName];
+        if (!helper || typeof helper !== 'object')
+          return;
+        switch (method) {
+          case 'moveCursor':
+            if (typeof helper.moveCursor === 'function')
+              helper.moveCursor(controlToken, x, y);
+            break;
+          case 'pulseClick':
+            if (typeof helper.pulseClick === 'function')
+              helper.pulseClick(controlToken, x, y);
+            break;
+        }
+      }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, method, controlToken: this._agentSessionOverlayControlToken, x, y });
     } catch (e) {
       debug('pw:tools:error')(e);
     }
@@ -641,32 +726,6 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     }
 
     await this.page.evaluate(() => new Promise(f => setTimeout(f, 1000))).catch(() => {});
-  }
-}
-
-const documentFetchMarker = /\/\*\s*__sapotoAgentSessionDocumentFetchOverlayConfigV1__=([A-Za-z0-9+/=]+)\s*\*\//;
-
-function extractAgentSessionDocumentFetchConfig(initScripts: string[]): AgentSessionOverlayDocumentFetchOptions | undefined {
-  for (const script of initScripts) {
-    const match = documentFetchMarker.exec(script);
-    if (!match)
-      continue;
-    try {
-      const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8'));
-      if (!parsed || typeof parsed !== 'object')
-        return undefined;
-      const candidate = parsed as AgentSessionOverlayDocumentFetchOptions;
-      if (typeof candidate.endpoint !== 'string' || !candidate.endpoint)
-        return undefined;
-      if (!candidate.payload || typeof candidate.payload !== 'object')
-        return undefined;
-      if (!Array.isArray(candidate.accounts) || !candidate.accounts.length)
-        return undefined;
-      return candidate;
-    } catch (e) {
-      debug('pw:tools:error')(e);
-      return undefined;
-    }
   }
 }
 

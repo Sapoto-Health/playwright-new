@@ -40,6 +40,7 @@ export function decorateMCPCommand(command: Command) {
       // intersection of (capability-selected tools) ∩ (this allowlist).
       // Channel-only — not exposed in docs/api or the public types.d.ts.
       .option('--allowed-tools <tools>', 'comma-separated list of tool names to expose. If specified, only these tools are visible via tools/list.', commaSeparatedList)
+      .option('--action-cursor', 'show an animated cursor for pointer actions.')
       .option('--allow-unrestricted-file-access', 'allow access to files outside of the workspace roots. Also allows unrestricted access to file:// URLs. By default access to file system is restricted to workspace root directories (or cwd if no roots are configured) only, and navigation to file:// URLs is blocked.')
       .option('--blocked-origins <origins>', 'semicolon-separated list of origins to block the browser from requesting. Blocklist is evaluated before allowlist. If used without the allowlist, requests not matching the blocklist are still allowed.\nImportant: *does not* serve as a security boundary and *does not* affect redirects.', semicolonSeparatedList)
       .option('--block-service-workers', 'block service workers')

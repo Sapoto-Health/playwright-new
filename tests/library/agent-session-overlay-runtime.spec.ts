@@ -16,9 +16,33 @@
 
 import { contextTest as it, expect } from '../config/browserTest';
 import { AGENT_SESSION_OVERLAY_GLOBAL, buildOverlayScript, createAgentSessionOverlayScript } from '../../packages/playwright-core/src/tools/backend/agentSessionOverlay';
+import { PNG } from '../../packages/playwright-core/lib/utilsBundle';
 
-const OVERLAY_SCRIPT = buildOverlayScript({ statusText: 'MCP' });
+const OVERLAY_SCRIPT = buildOverlayScript({
+  statusText: 'MCP',
+  documentFetch: {
+    endpoint: 'https://example.invalid/sapoto-document-fetch',
+    payload: { runId: 'ignored' },
+    accounts: [{ token: 'ignored-token', label: 'Ignored account' }],
+  },
+});
 const HOST_SELECTOR = 'sapoto-mcp-agent-session-overlay';
+
+function countWarmOverlayPixels(buffer: Buffer): number {
+  const png = PNG.sync.read(buffer);
+  let warm = 0;
+  for (let y = 0; y < png.height; y++) {
+    for (let x = 0; x < png.width; x++) {
+      const idx = (png.width * y + x) * 4;
+      const r = png.data[idx];
+      const g = png.data[idx + 1];
+      const b = png.data[idx + 2];
+      if (r > 200 && g > 60 && g < 180 && b < 90)
+        warm += 1;
+    }
+  }
+  return warm;
+}
 
 it('agent-session overlay installs one aria-hidden host and hides in print media', async ({ context, server }) => {
   await context.addInitScript({ content: OVERLAY_SCRIPT });
@@ -59,7 +83,8 @@ it('agent-session overlay rejects hostile page control attempts', async ({ conte
     const descriptorBefore = Object.getOwnPropertyDescriptor(window, globalName);
     const hideResult = helper.hide();
     const removeResult = helper.remove();
-    const consumeResult = helper.consumeStopRequested();
+    const moveResult = helper.moveCursor('wrong-token', 25, 30);
+    const pulseResult = helper.pulseClick('wrong-token', 25, 30);
     let redefineError = false;
     try {
       Object.defineProperty(window, globalName, { value: { removed: true } });
@@ -77,7 +102,8 @@ it('agent-session overlay rejects hostile page control attempts', async ({ conte
       frozen: Object.isFrozen(helper),
       hideResult,
       removeResult,
-      consumeResult,
+      moveResult,
+      pulseResult,
       redefineError,
       globalStillInstalled: (window as any)[globalName] === helper,
     };
@@ -90,7 +116,8 @@ it('agent-session overlay rejects hostile page control attempts', async ({ conte
     frozen: true,
     hideResult: false,
     removeResult: false,
-    consumeResult: false,
+    moveResult: false,
+    pulseResult: false,
     redefineError: true,
     globalStillInstalled: true,
   });
@@ -181,9 +208,38 @@ it('agent-session overlay does not leak token when non-configurable page-owned h
   expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
 });
 
-it('agent-session overlay stop affordance requires a one-second hold while host pointer-events stays none', async ({ context, server }) => {
+it('agent-session overlay remains single-instance if the same document evaluates it twice', async ({ context, server }) => {
+  const { content, controlToken } = createAgentSessionOverlayScript({ statusText: 'MCP' });
+  await context.addInitScript({ content });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+
+  await page.evaluate(content).catch(() => {});
+
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  const result = await page.evaluate(({ globalName, controlToken }) => {
+    const helper = (window as any)[globalName];
+    return {
+      hideResult: helper.hide(controlToken),
+      hostDisplays: [...document.querySelectorAll('sapoto-mcp-agent-session-overlay')]
+          .map(host => getComputedStyle(host).display),
+    };
+  }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, controlToken });
+  expect(result).toEqual({
+    hideResult: true,
+    hostDisplays: ['none'],
+  });
+});
+
+it('agent-session overlay is passive and does not dispatch page-side stop or document fetch actions', async ({ context, server }) => {
+  const documentFetchRequests: unknown[] = [];
+  await context.route('**/sapoto-document-fetch', async route => {
+    documentFetchRequests.push(route.request().postDataJSON());
+    await route.fulfill({ status: 204, body: '' });
+  });
   await context.addInitScript({ content: OVERLAY_SCRIPT });
   const page = await context.newPage();
+  await page.setViewportSize({ width: 900, height: 620 });
   await page.goto(server.EMPTY_PAGE);
 
   await page.evaluate(() => {
@@ -193,20 +249,13 @@ it('agent-session overlay stop affordance requires a one-second hold while host 
     window.addEventListener('__sapotoMcpStopRequested', () => (window as any).__stopEventCount++);
   });
 
-  const hostState = await page.locator(HOST_SELECTOR).evaluate(host => ({
-    pointerEvents: getComputedStyle(host).pointerEvents,
-    display: getComputedStyle(host).display,
-  }));
-  expect(hostState).toEqual({
-    pointerEvents: 'none',
-    display: 'block',
-  });
-
-  const stopButtonPoint = await page.evaluate(() => ({
-    x: window.innerWidth / 2,
-    y: window.innerHeight - 27,
-  }));
-  await page.mouse.click(stopButtonPoint.x, stopButtonPoint.y);
+  for (const point of [
+    { x: 450, y: 593 },
+    { x: 740, y: 380 },
+    { x: 662, y: 388 },
+    { x: 739, y: 519 },
+  ])
+    await page.mouse.click(point.x, point.y);
   await page.waitForTimeout(1100);
 
   expect(await page.evaluate(() => ({
@@ -216,86 +265,81 @@ it('agent-session overlay stop affordance requires a one-second hold while host 
     callbackCount: 0,
     eventCount: 0,
   });
+  expect(documentFetchRequests).toEqual([]);
+  expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).pointerEvents)).toBe('none');
+});
 
-  await page.mouse.move(stopButtonPoint.x, stopButtonPoint.y);
-  await page.mouse.down();
-  await page.waitForTimeout(1100);
-  await page.mouse.up();
+it('agent-session overlay cursor visuals are token gated', async ({ context, server }) => {
+  const { content, controlToken } = createAgentSessionOverlayScript();
+  await context.addInitScript({ content });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
 
-  expect(await page.evaluate(() => ({
-    callbackCount: (window as any).__stopCallbackCount,
-    eventCount: (window as any).__stopEventCount,
-  }))).toEqual({
-    callbackCount: 1,
-    eventCount: 1,
+  expect(await page.evaluate(({ globalName, controlToken }) => {
+    const helper = (window as any)[globalName];
+    return {
+      invalidMove: helper.moveCursor('wrong-token', 10, 20),
+      invalidPulse: helper.pulseClick('wrong-token', 10, 20),
+      validMove: helper.moveCursor(controlToken, 123, 234),
+      validPulse: helper.pulseClick(controlToken, 123, 234),
+    };
+  }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, controlToken })).toEqual({
+    invalidMove: false,
+    invalidPulse: false,
+    validMove: true,
+    validPulse: true,
   });
   expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).pointerEvents)).toBe('none');
 });
 
-it('agent-session overlay document panel dispatches latest and past fetch requests from configured accounts', async ({ context, server }) => {
-  const documentFetchRequests: unknown[] = [];
-  await context.route('**/sapoto-document-fetch', async route => {
-    documentFetchRequests.push(route.request().postDataJSON());
-    await route.fulfill({ status: 204, body: '' });
-  });
-  await context.addInitScript({ content: buildOverlayScript({
-    documentFetch: {
-      endpoint: `${server.PREFIX}/sapoto-document-fetch`,
-      payload: { runId: 'run-document-fetch' },
-      accounts: [
-        { token: 'checking-token', label: 'Everyday checking' },
-        { token: 'savings-token', label: 'Savings' },
-      ],
-      currentAccountToken: 'checking-token',
-      years: [2026, 2025],
-      months: [5, 4],
-    },
-  }) });
+it('agent-session overlay hidden cursor mode retains active glow without cursor helper failures', async ({ context, server }) => {
+  const { content, controlToken } = createAgentSessionOverlayScript({ cursor: 'hidden' });
+  await context.addInitScript({ content });
   const page = await context.newPage();
-  await page.setViewportSize({ width: 900, height: 620 });
   await page.goto(server.EMPTY_PAGE);
 
-  await page.mouse.click(740, 380);
-  await page.mouse.click(662, 388);
-  await page.mouse.click(739, 519);
+  expect(await page.evaluate(({ globalName, controlToken }) => {
+    const helper = (window as any)[globalName];
+    return {
+      move: helper.moveCursor(controlToken, 123, 234),
+      pulse: helper.pulseClick(controlToken, 123, 234),
+    };
+  }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, controlToken })).toEqual({
+    move: true,
+    pulse: true,
+  });
 
-  await expect.poll(() => documentFetchRequests).toEqual([
-    { accountToken: 'checking-token', mode: 'latest', runId: 'run-document-fetch' },
-  ]);
-  expect(await page.evaluate(() => ({
-    configExposed: Object.prototype.hasOwnProperty.call(window, '__sapotoDocumentFetchOverlayConfig'),
-    callbackExposed: Object.prototype.hasOwnProperty.call(window, '__sapotoDocumentFetchRequested'),
-  }))).toEqual({ configExposed: false, callbackExposed: false });
-
-  await page.mouse.click(565, 324);
-  await page.mouse.click(740, 380);
-  await page.mouse.click(819, 388);
-  await page.mouse.click(739, 519);
-
-  await expect.poll(() => documentFetchRequests).toEqual([
-    { accountToken: 'checking-token', mode: 'latest', runId: 'run-document-fetch' },
-    { accountToken: 'checking-token', mode: 'since_date', sinceYear: 2026, sinceMonth: 5, runId: 'run-document-fetch' },
-  ]);
-
+  expect(countWarmOverlayPixels(await page.screenshot())).toBeGreaterThan(0);
   expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).pointerEvents)).toBe('none');
 });
 
-it('agent-session overlay document panel is absent without configured accounts', async ({ context, server }) => {
-  await context.addInitScript({ content: OVERLAY_SCRIPT });
+it('agent-session overlay hides for capture with token-gated host controls', async ({ context, server }) => {
+  const { content, controlToken } = createAgentSessionOverlayScript();
+  await context.addInitScript({ content });
   const page = await context.newPage();
-  await page.setViewportSize({ width: 900, height: 620 });
   await page.goto(server.EMPTY_PAGE);
 
-  await page.evaluate(() => {
-    (window as any).__documentFetchEventDetails = [];
-    window.addEventListener('__sapotoMcpDocumentFetchRequested', event => {
-      (window as any).__documentFetchEventDetails.push((event as CustomEvent).detail);
-    });
+  expect(await page.evaluate(({ globalName, controlToken }) => {
+    const helper = (window as any)[globalName];
+    return {
+      invalidHide: helper.hide('wrong-token'),
+      displayAfterInvalidHide: getComputedStyle(document.querySelector('sapoto-mcp-agent-session-overlay')!).display,
+      validHide: helper.hide(controlToken),
+      displayAfterValidHide: getComputedStyle(document.querySelector('sapoto-mcp-agent-session-overlay')!).display,
+      invalidShow: helper.show('wrong-token'),
+      displayAfterInvalidShow: getComputedStyle(document.querySelector('sapoto-mcp-agent-session-overlay')!).display,
+      validShow: helper.show(controlToken),
+      displayAfterValidShow: getComputedStyle(document.querySelector('sapoto-mcp-agent-session-overlay')!).display,
+    };
+  }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, controlToken })).toEqual({
+    invalidHide: false,
+    displayAfterInvalidHide: 'block',
+    validHide: true,
+    displayAfterValidHide: 'none',
+    invalidShow: false,
+    displayAfterInvalidShow: 'none',
+    validShow: true,
+    displayAfterValidShow: 'block',
   });
-
-  await page.mouse.click(740, 438);
-  await page.mouse.click(662, 438);
-  await page.mouse.click(739, 563);
-
-  expect(await page.evaluate(() => (window as any).__documentFetchEventDetails)).toEqual([]);
+  expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).pointerEvents)).toBe('none');
 });

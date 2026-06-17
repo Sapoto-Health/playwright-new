@@ -1366,6 +1366,23 @@ export class InjectedScript {
       highlight.showActionTitle(annotation.actionTitle, fadeDuration, annotation.position, annotation.fontSize);
   }
 
+  setActionCursor(annotation: { point?: channels.Point, duration?: number, clickEffect?: 'none' | 'point', mode?: 'pointer' | 'scroll' } | null): number {
+    const highlight = this._ensureHighlight();
+    if (!annotation) {
+      highlight.hideActionPoint();
+      highlight.hideActionCursor();
+      return 0;
+    }
+    const fadeDuration = annotation.duration ?? 800;
+    if (annotation.point) {
+      const moveDuration = highlight.moveActionCursor(annotation.point.x, annotation.point.y, fadeDuration, false, annotation.mode ?? 'pointer');
+      if (annotation.clickEffect !== 'none')
+        highlight.showActionPoint(annotation.point.x, annotation.point.y, fadeDuration, moveDuration);
+      return moveDuration;
+    }
+    return 0;
+  }
+
   addUserOverlay(id: string, html: string) {
     const highlight = this._ensureHighlight();
     highlight.addUserOverlay(id, html);

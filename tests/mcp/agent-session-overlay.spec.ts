@@ -49,9 +49,9 @@ function newestPng(outputDir: string): Buffer {
   return fs.readFileSync(path.join(outputDir, files[files.length - 1]));
 }
 
-function countOrangePixels(buffer: Buffer): number {
+function countWarmOverlayPixels(buffer: Buffer): number {
   const png = PNG.sync.read(buffer);
-  let orange = 0;
+  let warm = 0;
   for (let y = 0; y < png.height; y++) {
     for (let x = 0; x < png.width; x++) {
       const idx = (png.width * y + x) * 4;
@@ -59,10 +59,10 @@ function countOrangePixels(buffer: Buffer): number {
       const g = png.data[idx + 1];
       const b = png.data[idx + 2];
       if (r > 200 && g > 60 && g < 180 && b < 90)
-        orange += 1;
+        warm += 1;
     }
   }
-  return orange;
+  return warm;
 }
 
 test('agent-session overlay is visible to the live page but hidden from browser_snapshot', async ({ startClient, server }) => {
@@ -123,7 +123,7 @@ test('browser_take_screenshot hides the agent-session overlay during capture', a
 
   await client.callTool({ name: 'browser_take_screenshot' });
 
-  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect(countWarmOverlayPixels(newestPng(outputDir))).toBe(0);
   expect((await overlayState(client)).display).toBe('block');
 });
 
@@ -195,7 +195,7 @@ test('agent-session overlay host controls do not expose the control token to mon
     },
   });
   expect(JSON.parse(parseResponse(stolenTokensResponse, test.info().outputPath()).result!)).toEqual([]);
-  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect(countWarmOverlayPixels(newestPng(outputDir))).toBe(0);
   expect((await overlayState(client)).display).toBe('block');
 });
 
@@ -208,7 +208,7 @@ test('browser_take_screenshot first operation on a fresh tab does not capture th
     result: expect.stringMatching(/\[Screenshot of viewport\]\(.*page-[^:]+.png\)/),
   });
 
-  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect(countWarmOverlayPixels(newestPng(outputDir))).toBe(0);
   expect((await overlayState(client)).display).toBe('block');
 });
 
@@ -228,11 +228,12 @@ test('browser_take_ocr_friendly_screenshot hides the agent-session overlay durin
     arguments: { tileHeight: 2000 },
   });
 
-  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect(countWarmOverlayPixels(newestPng(outputDir))).toBe(0);
   expect((await overlayState(client)).display).toBe('block');
 });
 
-test('browser_pdf_save restores the agent-session overlay after capture', async ({ startClient, server }, testInfo) => {
+test('browser_pdf_save restores the agent-session overlay after capture', async ({ startClient, mcpBrowser, server }, testInfo) => {
+  test.skip(!!mcpBrowser && !['chromium', 'chrome', 'msedge'].includes(mcpBrowser), 'Save as PDF is only supported in Chromium.');
   const outputDir = testInfo.outputPath('output');
   const { client } = await startClient({
     config: { outputDir, capabilities: ['pdf'] },

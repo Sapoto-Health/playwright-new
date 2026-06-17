@@ -25,6 +25,7 @@ import type { InjectedScript } from './injectedScript';
 
 
 type Rect = { x: number, y: number, width: number, height: number };
+type ActionCursorMode = 'pointer' | 'scroll';
 
 type RenderedHighlightEntry = {
   targetElement?: Element,
@@ -57,6 +58,7 @@ export class Highlight {
   private _actionPointElement: HTMLElement;
   private _actionCursorElement: HTMLElement;
   private _titleElement: HTMLElement;
+  private _actionPointTimer: number | undefined;
   private _userOverlayContainer: HTMLElement;
   private _userOverlays = new Map<string, HTMLElement>();
   private _userOverlayHidden = false;
@@ -177,26 +179,78 @@ export class Highlight {
     this._glassPaneElement.remove();
   }
 
-  showActionPoint(x: number, y: number, fadeDuration?: number) {
+  showActionPoint(x: number, y: number, fadeDuration?: number, revealDelay?: number) {
+    if (this._actionPointTimer) {
+      this._injectedScript.window.clearTimeout(this._actionPointTimer);
+      this._actionPointTimer = undefined;
+    }
     this._actionPointElement.style.top = y + 'px';
     this._actionPointElement.style.left = x + 'px';
-    this._actionPointElement.hidden = false;
-    if (fadeDuration)
-      this._actionPointElement.style.animation = `pw-fade-out ${fadeDuration}ms ease-out forwards`;
-    else
+    this._actionPointElement.setAttribute('data-click-delay', revealDelay ? 'true' : 'false');
+    const reveal = () => {
+      this._actionPointTimer = undefined;
+      this._actionPointElement.hidden = false;
+      this._actionPointElement.setAttribute('data-click-delay', 'false');
+      if (fadeDuration)
+        this._actionPointElement.style.animation = `pw-action-gold-pulse ${fadeDuration}ms cubic-bezier(.2, .78, .18, 1) forwards`;
+      else
+        this._actionPointElement.style.animation = '';
+    };
+    if (revealDelay) {
+      this._actionPointElement.hidden = true;
       this._actionPointElement.style.animation = '';
+      this._actionPointTimer = this._injectedScript.window.setTimeout(reveal, revealDelay);
+    } else {
+      reveal();
+    }
   }
 
   hideActionPoint() {
+    if (this._actionPointTimer) {
+      this._injectedScript.window.clearTimeout(this._actionPointTimer);
+      this._actionPointTimer = undefined;
+    }
     this._actionPointElement.hidden = true;
   }
 
-  moveActionCursor(x: number, y: number, fadeDuration?: number) {
-    const moveDuration = fadeDuration ? Math.max(80, Math.min(fadeDuration * 0.6, 400)) : 0;
-    this._actionCursorElement.style.transition = `top ${moveDuration}ms ease, left ${moveDuration}ms ease`;
+  moveActionCursor(x: number, y: number, fadeDuration?: number, idle?: boolean, mode: ActionCursorMode = 'pointer'): number {
+    let moveDuration = 0;
+    const previousX = parseFloat(this._actionCursorElement.style.left || 'NaN');
+    const previousY = parseFloat(this._actionCursorElement.style.top || 'NaN');
+    const hasPreviousPosition = Number.isFinite(previousX) && Number.isFinite(previousY);
+    const startX = hasPreviousPosition ? previousX : x;
+    const startY = hasPreviousPosition ? previousY : y;
+    const distance = Math.hypot(x - startX, y - startY);
+    if (fadeDuration && distance > 3)
+      moveDuration = Math.max(80, Math.min(distance * 1.2, fadeDuration * 0.75, 700));
+    this._actionCursorElement.getAnimations().forEach(animation => animation.cancel());
+    this._actionCursorElement.style.transition = '';
     this._actionCursorElement.style.left = x + 'px';
     this._actionCursorElement.style.top = y + 'px';
+    this._actionCursorElement.style.transform = 'translate(0, 0)';
+    this._actionCursorElement.setAttribute('data-idle', idle ? 'true' : 'false');
+    this._actionCursorElement.setAttribute('data-mode', mode);
+    this._actionCursorElement.toggleAttribute('data-motion-path', false);
     this._actionCursorElement.style.visibility = 'visible';
+    if (moveDuration) {
+      const bend = Math.max(18, Math.min(90, distance * 0.18));
+      const direction = ((startX + startY + x + y) % 2) >= 1 ? 1 : -1;
+      const normalX = (startY - y) / distance;
+      const normalY = (x - startX) / distance;
+      const controlX = (startX + x) / 2 + normalX * bend * direction;
+      const controlY = (startY + y) / 2 + normalY * bend * direction;
+      this._actionCursorElement.setAttribute('data-motion-path', 'curved');
+      this._actionCursorElement.animate([
+        { transform: `translate(${startX - x}px, ${startY - y}px)` },
+        { transform: `translate(${controlX - x}px, ${controlY - y}px)`, offset: 0.46 },
+        { transform: 'translate(0, 0)' },
+      ], {
+        duration: moveDuration,
+        easing: 'cubic-bezier(.2, .78, .18, 1)',
+        fill: 'both',
+      });
+    }
+    return moveDuration;
   }
 
   hideActionCursor() {
@@ -206,14 +260,51 @@ export class Highlight {
   private _createCursorSvg(document: Document): SVGSVGElement {
     const svgNs = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNs, 'svg');
-    svg.setAttribute('viewBox', '0 0 18 22');
+    svg.setAttribute('viewBox', '0 0 22 26');
+    svg.setAttribute('aria-hidden', 'true');
+
+    const pointer = document.createElementNS(svgNs, 'g');
+    pointer.setAttribute('data-cursor-shape', 'pointer');
+    svg.appendChild(pointer);
+
     const path = document.createElementNS(svgNs, 'path');
-    path.setAttribute('d', 'M1 1 L1 17 L5.5 13 L8 20.5 L11 19.5 L8.5 12 L15 12 Z');
-    path.setAttribute('fill', 'white');
-    path.setAttribute('stroke', 'black');
-    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('d', 'M2 2 L2 21 L7.6 15.8 L10.7 24 L14.4 22.6 L11.2 14.8 L19.5 14.8 Z');
+    path.setAttribute('fill', 'rgb(17, 24, 39)');
+    path.setAttribute('stroke', 'rgb(212, 160, 23)');
+    path.setAttribute('stroke-width', '1.75');
     path.setAttribute('stroke-linejoin', 'round');
-    svg.appendChild(path);
+    pointer.appendChild(path);
+
+    const accent = document.createElementNS(svgNs, 'path');
+    accent.setAttribute('d', 'M2 2 L2 21 L7.6 15.8');
+    accent.setAttribute('fill', 'none');
+    accent.setAttribute('stroke', 'rgba(240, 192, 64, 0.96)');
+    accent.setAttribute('stroke-width', '2.4');
+    accent.setAttribute('stroke-linecap', 'round');
+    accent.setAttribute('stroke-linejoin', 'round');
+    pointer.appendChild(accent);
+
+    const scroll = document.createElementNS(svgNs, 'g');
+    scroll.setAttribute('data-cursor-shape', 'scroll');
+    svg.appendChild(scroll);
+
+    const scrollBody = document.createElementNS(svgNs, 'circle');
+    scrollBody.setAttribute('cx', '11');
+    scrollBody.setAttribute('cy', '13');
+    scrollBody.setAttribute('r', '8');
+    scrollBody.setAttribute('fill', 'rgb(17, 24, 39)');
+    scrollBody.setAttribute('stroke', 'rgb(212, 160, 23)');
+    scrollBody.setAttribute('stroke-width', '1.75');
+    scroll.appendChild(scrollBody);
+
+    const scrollGlyph = document.createElementNS(svgNs, 'path');
+    scrollGlyph.setAttribute('d', 'M11 5.5 V20.5 M7.8 9 L11 5.5 L14.2 9 M7.8 17 L11 20.5 L14.2 17');
+    scrollGlyph.setAttribute('fill', 'none');
+    scrollGlyph.setAttribute('stroke', 'rgba(240, 192, 64, 0.96)');
+    scrollGlyph.setAttribute('stroke-width', '2');
+    scrollGlyph.setAttribute('stroke-linecap', 'round');
+    scrollGlyph.setAttribute('stroke-linejoin', 'round');
+    scroll.appendChild(scrollGlyph);
     return svg;
   }
 

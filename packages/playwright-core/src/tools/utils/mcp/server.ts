@@ -56,9 +56,17 @@ class BackendManager {
     await factory.disposed(backend).catch(serverDebug);
     this._backends.delete(backend);
   }
+
+  async disposeAllBackends() {
+    await Promise.all([...this._backends.keys()].map(backend => this.disposeBackend(backend)));
+  }
 }
 
 const backendManager = new BackendManager();
+
+export async function disposeAllBackends() {
+  await backendManager.disposeAllBackends();
+}
 
 export interface ServerBackend {
   initialize?(clientInfo: ClientInfo): Promise<void>;

@@ -33,6 +33,8 @@ import type { CallMetadata } from '@protocol/callMetadata';
 export type { CallMetadata } from '@protocol/callMetadata';
 import type { LogName } from '@utils/debugLogger';
 
+export type InputActionMode = 'pointer' | 'scroll';
+
 export type Attribution = {
   playwright: Playwright;
   browserType?: BrowserType;
@@ -86,7 +88,7 @@ export interface Instrumentation {
   addListener(listener: InstrumentationListener, context: BrowserContext | APIRequestContext | null, options?: AddListenerOptions): void;
   removeListener(listener: InstrumentationListener): void;
   onBeforeCall(sdkObject: SdkObject, metadata: CallMetadata, parentId?: string): Promise<void>;
-  onBeforeInputAction(sdkObject: SdkObject, metadata: CallMetadata, point?: types.Point, box?: types.Rect): Promise<void>;
+  onBeforeInputAction(sdkObject: SdkObject, metadata: CallMetadata, point?: types.Point, box?: types.Rect, mode?: InputActionMode): Promise<void>;
   onCallLog(sdkObject: SdkObject, metadata: CallMetadata, logName: string, message: string): void;
   onAfterCall(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
   onPageOpen(page: Page): void;
@@ -99,7 +101,7 @@ export interface Instrumentation {
 
 export interface InstrumentationListener {
   onBeforeCall?(sdkObject: SdkObject, metadata: CallMetadata, parentId?: string): Promise<void>;
-  onBeforeInputAction?(sdkObject: SdkObject, metadata: CallMetadata, point?: types.Point, box?: types.Rect): Promise<void>;
+  onBeforeInputAction?(sdkObject: SdkObject, metadata: CallMetadata, point?: types.Point, box?: types.Rect, mode?: InputActionMode): Promise<void>;
   onCallLog?(sdkObject: SdkObject, metadata: CallMetadata, logName: string, message: string): void;
   onAfterCall?(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
   onPageOpen?(page: Page): void;

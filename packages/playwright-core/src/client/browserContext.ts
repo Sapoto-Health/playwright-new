@@ -544,8 +544,10 @@ async function prepareStorageState(platform: Platform, storageState: string | Se
 export async function prepareBrowserContextParams(platform: Platform, options: BrowserContextOptions): Promise<channels.BrowserNewContextParams> {
   if (options.extraHTTPHeaders)
     network.validateHeaders(options.extraHTTPHeaders);
+  const actionCursor = options.actionCursor === true ? {} : options.actionCursor || undefined;
   const contextParams: channels.BrowserNewContextParams = {
     ...options,
+    actionCursor,
     viewport: options.viewport === null ? undefined : options.viewport,
     noDefaultViewport: options.viewport === null,
     extraHTTPHeaders: options.extraHTTPHeaders ? headersObjectToArray(options.extraHTTPHeaders) : undefined,
