@@ -1,0 +1,3 @@
+# Keep future GitHub Actions workflow changes reviewed. This repo intentionally
+# avoids workflow files unless CI is deliberately added with a cost owner.
+.github/workflows/** @2015kmadanap
