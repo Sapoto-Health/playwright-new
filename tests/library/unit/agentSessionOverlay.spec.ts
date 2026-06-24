@@ -53,8 +53,18 @@ it('agent-session overlay exposes token-gated cursor helpers from Tab', () => {
   expect(src).toContain('async moveAgentSessionCursorToLocator');
   expect(src).toContain('async pulseAgentSessionClickOnLocator');
   expect(src).toContain('await locator.scrollIntoViewIfNeeded({ timeout })');
-  expect(src).toContain("helper.moveCursor(controlToken, x, y)");
-  expect(src).toContain("helper.pulseClick(controlToken, x, y)");
+  expect(src).toContain('helper.moveCursor(controlToken, x, y)');
+  expect(src).toContain('helper.pulseClick(controlToken, x, y)');
+});
+
+it('agent-run overlay mode starts the cursor idle at viewport center and respects reduced motion', () => {
+  const src = buildOverlayScript({ agentRunOverlay: true });
+
+  expect(src).toContain('const AGENT_RUN_OVERLAY = true;');
+  expect(src).toContain('setCursorPosition(window.innerWidth / 2, window.innerHeight / 2)');
+  expect(src).toContain('sapoto-idle-cursor 1600ms ease-in-out infinite');
+  expect(src).toContain('@media (prefers-reduced-motion: reduce)');
+  expect(src).toContain('animation: none !important;');
 });
 
 it('agent-session overlay unregisters future injection before removing the current host on dispose', () => {
@@ -65,7 +75,7 @@ it('agent-session overlay unregisters future injection before removing the curre
 
   expect(disposeSrc).toContain('await this._disposeAgentSessionOverlayInitScript()');
   expect(disposeSrc.indexOf('await this._disposeAgentSessionOverlayInitScript()'))
-    .toBeLessThan(disposeSrc.indexOf('await this.removeAgentSessionOverlay()'));
+      .toBeLessThan(disposeSrc.indexOf('await this.removeAgentSessionOverlay()'));
 });
 
 it('mcp watchdog disposes Playwright backends before process shutdown', () => {
@@ -77,7 +87,7 @@ it('mcp watchdog disposes Playwright backends before process shutdown', () => {
   expect(watchdogSrc).toContain("import { disposeAllBackends } from '../utils/mcp/server';");
   expect(exitHandlerSrc).toContain('await disposeAllBackends()');
   expect(exitHandlerSrc.indexOf('await disposeAllBackends()'))
-    .toBeLessThan(exitHandlerSrc.indexOf('await gracefullyCloseAll()'));
+      .toBeLessThan(exitHandlerSrc.indexOf('await gracefullyCloseAll()'));
 });
 
 it('agent-session overlay cursor hooks are called by high-level and coordinate mouse tools', () => {

@@ -18,6 +18,7 @@ import { createGuid } from '@utils/crypto';
 
 export type AgentSessionOverlayOptions = {
   statusText?: string;
+  agentRunOverlay?: boolean;
   documentFetch?: AgentSessionOverlayDocumentFetchOptions;
 };
 
@@ -47,15 +48,28 @@ export function createAgentSessionOverlayScript(options: AgentSessionOverlayOpti
 }
 
 export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, controlToken = createGuid()): string {
+  const options = {
+    agentRunOverlay: !!_options.agentRunOverlay,
+  };
   return `(() => {
   const HOST_TAG = ${JSON.stringify(AGENT_SESSION_OVERLAY_HOST)};
   const GLOBAL_NAME = ${JSON.stringify(AGENT_SESSION_OVERLAY_GLOBAL)};
   const CONTROL_TOKEN = ${JSON.stringify(controlToken)};
+  const AGENT_RUN_OVERLAY = ${JSON.stringify(options.agentRunOverlay)};
 
   try {
     if (window !== window.top)
       return;
   } catch (_) {
+    return;
+  }
+
+  const existingApi = window[GLOBAL_NAME];
+  if (existingApi && typeof existingApi === 'object') {
+    try {
+      if (typeof existingApi.ensure === 'function')
+        existingApi.ensure();
+    } catch (_) {}
     return;
   }
 
@@ -152,6 +166,13 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       .cursor.visible {
         opacity: 1 !important;
       }
+      .cursor.idle {
+        animation: sapoto-idle-cursor 1600ms ease-in-out infinite !important;
+      }
+      @keyframes sapoto-idle-cursor {
+        0%, 100% { filter: drop-shadow(0 0 0 rgba(255, 122, 24, 0.16)); }
+        50% { filter: drop-shadow(0 0 8px rgba(255, 122, 24, 0.68)); }
+      }
       .pulse {
         position: fixed !important;
         left: 0 !important;
@@ -169,6 +190,14 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       @keyframes sapoto-click-pulse {
         0% { opacity: 1; transform: var(--sapoto-pulse-transform) scale(0.65); }
         100% { opacity: 0; transform: var(--sapoto-pulse-transform) scale(1.8); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .cursor {
+          transition-duration: 0.01ms !important;
+        }
+        .cursor.idle {
+          animation: none !important;
+        }
       }
     \`;
     try {
@@ -205,6 +234,7 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
     try {
       cursor.style.setProperty('transform', 'translate3d(' + safeX + 'px, ' + safeY + 'px, 0)', 'important');
       cursor.classList.add('visible');
+      cursor.classList.remove('idle');
       return true;
     } catch (_) {
       return false;
@@ -256,12 +286,29 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
     root.appendChild(cursor);
 
     shadow.appendChild(root);
+    if (AGENT_RUN_OVERLAY) {
+      try {
+        cursor.classList.add('idle');
+        setCursorPosition(window.innerWidth / 2, window.innerHeight / 2);
+        cursor.classList.add('idle');
+      } catch (_) {
+      }
+    }
+    const reduceMotion = (() => {
+      try {
+        return !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      } catch (_) {
+        return false;
+      }
+    })();
     try {
-      glow.animate([
-        { boxShadow: 'inset 0 0 0 3px rgba(255, 122, 24, 0.98), inset 0 0 18px rgba(255, 122, 24, 0.48)' },
-        { boxShadow: 'inset 0 0 0 5px rgba(255, 122, 24, 0.98), inset 0 0 30px rgba(255, 122, 24, 0.78)' },
-        { boxShadow: 'inset 0 0 0 3px rgba(255, 122, 24, 0.98), inset 0 0 18px rgba(255, 122, 24, 0.48)' },
-      ], { duration: 2000, iterations: Infinity, easing: 'ease-in-out' });
+      if (!reduceMotion) {
+        glow.animate([
+          { boxShadow: 'inset 0 0 0 3px rgba(255, 122, 24, 0.98), inset 0 0 18px rgba(255, 122, 24, 0.48)' },
+          { boxShadow: 'inset 0 0 0 5px rgba(255, 122, 24, 0.98), inset 0 0 30px rgba(255, 122, 24, 0.78)' },
+          { boxShadow: 'inset 0 0 0 3px rgba(255, 122, 24, 0.98), inset 0 0 18px rgba(255, 122, 24, 0.48)' },
+        ], { duration: 2000, iterations: Infinity, easing: 'ease-in-out' });
+      }
     } catch (_) {
     }
   };

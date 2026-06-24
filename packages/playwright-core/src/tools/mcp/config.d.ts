@@ -242,6 +242,13 @@ export type Config = {
   codegen?: 'typescript' | 'none';
 
   /**
+   * Sapoto PRD #1340 / Tracer #1341: enable the private Sapoto Run overlay
+   * baseline on controlled pages. Channel-only; not exposed in public
+   * Playwright docs/types.
+   */
+  agentRunOverlay?: boolean;
+
+  /**
    * Sapoto Tracer #1154 (Unit I): install the capture-bridge IIFE on every
    * page (C3 deferred print + C4 sync print fast-path mirror + C5
    * window.open shim) and exclude `__sapoto_bg=V1:` background-target URLs

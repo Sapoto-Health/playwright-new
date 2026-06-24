@@ -28,7 +28,7 @@ import { LogFile } from './logFile';
 import { ModalState } from './tool';
 import { handleDialog } from './dialogs';
 import { uploadFile } from './files';
-import { AGENT_SESSION_OVERLAY_GLOBAL, createAgentSessionOverlayScript } from './agentSessionOverlay';
+import { AGENT_SESSION_OVERLAY_GLOBAL } from './agentSessionOverlay';
 
 import type { Disposable } from '@isomorphic/disposable';
 import type { Context, ContextConfig } from './context';

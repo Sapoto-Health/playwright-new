@@ -19,6 +19,7 @@ import path from 'path';
 
 import { test, expect, parseResponse } from './fixtures';
 import { PNG } from '../../packages/playwright-core/lib/utilsBundle';
+import { buildOverlayScript } from '../../packages/playwright-core/src/tools/backend/agentSessionOverlay';
 
 const HOST_SELECTOR = 'sapoto-mcp-agent-session-overlay';
 
@@ -51,9 +52,13 @@ function newestPng(outputDir: string): Buffer {
 
 function countOrangePixels(buffer: Buffer): number {
   const png = PNG.sync.read(buffer);
+  return countOrangePixelsInRect(png, 0, 0, png.width, png.height);
+}
+
+function countOrangePixelsInRect(png: PNG, minX: number, minY: number, maxX: number, maxY: number): number {
   let orange = 0;
-  for (let y = 0; y < png.height; y++) {
-    for (let x = 0; x < png.width; x++) {
+  for (let y = minY; y < maxY; y++) {
+    for (let x = minX; x < maxX; x++) {
       const idx = (png.width * y + x) * 4;
       const r = png.data[idx];
       const g = png.data[idx + 1];
@@ -261,4 +266,51 @@ test('agent-session overlay skips hidden background marker targets', async ({ cd
 
   const backgroundPage = browserContext.pages().find(page => page.url().includes('__sapoto_bg=V1:'))!;
   expect(await backgroundPage.locator(HOST_SELECTOR).count()).toBe(0);
+});
+
+test('agent-run overlay flag is accepted by the MCP runtime', async ({ startClient }) => {
+  const { client } = await startClient({ args: ['--agent-run-overlay'] });
+
+  const result = await client.callTool({ name: 'browser_snapshot' });
+  expect(result.isError).toBeFalsy();
+});
+
+test('agent-run overlay paints one host with glow and a centered idle cursor before input', async ({ cdpServer, startClient }) => {
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 400, height: 300 });
+  await page.goto('data:text/html,<!doctype html><html><body style="margin:0;background:#050505"></body></html>');
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay'] });
+  await client.callTool({ name: 'browser_snapshot' });
+
+  await expect.poll(() => page.locator(HOST_SELECTOR).count()).toBe(1);
+  const buffer = await page.screenshot();
+  const png = PNG.sync.read(buffer);
+  const centerOrangePixels = countOrangePixelsInRect(png, 190, 140, 214, 164);
+  const edgeOrangePixels = countOrangePixelsInRect(png, 0, 0, png.width, 24) +
+    countOrangePixelsInRect(png, 0, png.height - 24, png.width, png.height) +
+    countOrangePixelsInRect(png, 0, 0, 24, png.height) +
+    countOrangePixelsInRect(png, png.width - 24, 0, png.width, png.height);
+
+  expect(centerOrangePixels).toBeGreaterThan(20);
+  expect(edgeOrangePixels).toBeGreaterThan(200);
+});
+
+test('agent-run overlay reinstall keeps one host and one idle cursor visual', async ({ cdpServer, startClient }) => {
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 400, height: 300 });
+  await page.goto('data:text/html,<!doctype html><html><body style="margin:0;background:#050505"></body></html>');
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay'] });
+  await client.callTool({ name: 'browser_snapshot' });
+  await expect.poll(() => page.locator(HOST_SELECTOR).count()).toBe(1);
+
+  await page.evaluate(buildOverlayScript({ agentRunOverlay: true }));
+
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  const png = PNG.sync.read(await page.screenshot());
+  expect(countOrangePixelsInRect(png, 190, 140, 214, 164)).toBeGreaterThan(20);
+  expect(countOrangePixelsInRect(png, 180, 130, 224, 174)).toBeLessThan(700);
 });

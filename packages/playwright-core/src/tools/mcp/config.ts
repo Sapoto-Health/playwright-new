@@ -41,6 +41,9 @@ export type CLIOptions = {
   blockServiceWorkers?: boolean;
   browser?: string;
   caps?: string[];
+  // Sapoto PRD #1340 / Tracer #1341: install the private Sapoto Run overlay
+  // baseline on controlled pages. Channel-only; not exposed publicly.
+  agentRunOverlay?: boolean;
   // Sapoto Tracer #1154 (Unit I): install the capture-bridge IIFE on every
   // page and exclude `__sapoto_bg=V1:` background-target URLs from
   // `browser_tabs`. Channel-only; not exposed in public docs/types.
@@ -378,6 +381,7 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
       blockedOrigins: cliOptions.blockedOrigins,
     },
     allowUnrestrictedFileAccess: cliOptions.allowUnrestrictedFileAccess,
+    agentRunOverlay: cliOptions.agentRunOverlay,
     captureBridge: cliOptions.captureBridge,
     windowOpenCaptureMode: cliOptions.windowOpenCaptureMode ?? (cliOptions.captureBridge ? 'active' : undefined),
     // Sapoto Tracer #1155 (Unit G-ops): boolean / list channel-only options.
