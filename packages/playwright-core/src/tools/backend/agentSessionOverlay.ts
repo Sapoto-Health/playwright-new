@@ -217,6 +217,18 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       .cursor.idle {
         animation: sapoto-idle-cursor 1600ms ease-in-out infinite !important;
       }
+      .cursor.scroll {
+        width: 26px !important;
+        height: 26px !important;
+        margin: -6px 0 0 -6px !important;
+        border-radius: 8px !important;
+        background: rgba(17, 24, 39, 0.88) !important;
+        box-shadow:
+          0 0 0 2px rgba(212, 160, 23, 0.98),
+          0 8px 18px rgba(240, 192, 64, 0.58),
+          inset 0 8px 0 rgba(240, 192, 64, 0.86),
+          inset 0 -8px 0 rgba(240, 192, 64, 0.86) !important;
+      }
       @keyframes sapoto-idle-cursor {
         0%, 100% { filter: drop-shadow(0 0 0 rgba(255, 122, 24, 0.16)); }
         50% { filter: drop-shadow(0 0 8px rgba(255, 122, 24, 0.68)); }
@@ -298,6 +310,37 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       cursor.style.setProperty('transform', 'translate3d(' + safeX + 'px, ' + safeY + 'px, 0)', 'important');
       cursor.classList.add('visible');
       cursor.classList.remove('idle');
+      cursor.classList.remove('scroll');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const beginScroll = (x, y) => {
+    if (!CURSOR_VISIBLE)
+      return true;
+    if (!cursor)
+      return false;
+    const moved = setCursorPosition(x, y);
+    try {
+      cursor.classList.add('scroll');
+      cursor.classList.remove('idle');
+      return moved;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const endScroll = () => {
+    if (!CURSOR_VISIBLE)
+      return true;
+    if (!cursor)
+      return false;
+    try {
+      cursor.classList.remove('scroll');
+      cursor.classList.add('visible');
+      cursor.classList.add('idle');
       return true;
     } catch (_) {
       return false;
@@ -448,6 +491,18 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       appendHost();
       const moved = setCursorPosition(x, y);
       return pulseClick(x, y) && moved;
+    },
+    beginScroll: (token, x, y) => {
+      if (!isAuthorized(token))
+        return false;
+      appendHost();
+      return beginScroll(x, y);
+    },
+    endScroll: token => {
+      if (!isAuthorized(token))
+        return false;
+      appendHost();
+      return endScroll();
     },
   };
 
