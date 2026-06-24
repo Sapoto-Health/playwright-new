@@ -302,8 +302,8 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   async moveAgentSessionCursor(x: number, y: number) {
     if (!this._isAgentSessionOverlayCursorVisible())
       return;
-    await this._evaluateAgentSessionOverlayCursorHelper('moveCursor', x, y);
     this._agentSessionOverlayCursorPoint = { x, y };
+    await this._evaluateAgentSessionOverlayCursorHelper('moveCursor', x, y);
   }
 
   async pulseAgentSessionClick(x: number, y: number) {
@@ -337,8 +337,8 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   async animateAgentRunOverlayClick(x: number, y: number): Promise<boolean> {
     if (!this.context.config.agentRunOverlay || !this._isAgentSessionOverlayCursorVisible())
       return false;
-    await this._evaluateAgentSessionOverlayCursorHelper('pulseClick', x, y);
     this._agentSessionOverlayCursorPoint = { x, y };
+    await this._evaluateAgentSessionOverlayCursorHelper('pulseClick', x, y);
     await this._waitForAgentRunOverlayPointerAnimation();
     return true;
   }

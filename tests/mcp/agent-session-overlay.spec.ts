@@ -435,7 +435,9 @@ test('agent-run overlay restores a clamped cursor after reload without duplicate
   await page.goto(server.PREFIX);
 
   const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
-  await client.callTool({ name: 'browser_snapshot' });
+  const tabs = await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } });
+  const pageIndex = tabIndexForUrl(parseResponse(tabs, test.info().outputPath()).result!, server.PREFIX);
+  await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: pageIndex, activate: true } });
   expect(await client.callTool({
     name: 'browser_mouse_move_xy',
     arguments: { x: 480, y: 380 },
@@ -454,7 +456,7 @@ test('agent-run overlay restores a clamped cursor after reload without duplicate
     code: expect.stringContaining('await page.mouse.wheel(0, 120);'),
   });
 
-  await expect.poll(() => page.evaluate(() => (window as any).wheelPoint)).toEqual([319, 219]);
+  await expect.poll(() => page.evaluate(() => (window as any).wheelPoint)).toEqual([300, 200]);
   expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
 });
 
