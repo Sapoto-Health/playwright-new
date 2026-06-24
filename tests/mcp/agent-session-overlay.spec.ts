@@ -392,6 +392,36 @@ test('agent-run overlay animates locator clicks before action with one click eff
   expect(countOrangeComponentsInRect(png, 260, 220, 380, 290)).toBe(1);
 });
 
+test('agent-run overlay locator click point probing does not leave input intercepted', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Probe Cleanup</title>
+    <body style="margin:0;background:#050505;min-height:400px">
+      <button
+        style="position:fixed;left:100px;top:220px;width:500px;height:60px"
+        onclick="window.clickedPoint = [event.clientX, event.clientY]"
+      >Submit</button>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.goto(server.PREFIX);
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay'] });
+  await client.callTool({ name: 'browser_snapshot' });
+
+  const locator = page.locator('button') as ReturnType<typeof page.locator> & {
+    _resolveClickPoint?: (options?: { timeout?: number }) => Promise<{ x: number, y: number } | undefined>;
+  };
+  const point = await locator._resolveClickPoint?.({ timeout: 5000 });
+  expect(point).toEqual({ x: 300, y: 250 });
+
+  await page.mouse.click(300, 250);
+
+  expect(await page.evaluate(() => (window as any).clickedPoint)).toEqual([300, 250]);
+});
+
 test('agent-run overlay animates coordinate clicks before action with one click effect', async ({ cdpServer, startClient, server }) => {
   server.setContent('/', `
     <title>Agent Run Overlay Coordinate Click</title>

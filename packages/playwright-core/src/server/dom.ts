@@ -478,8 +478,21 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
       hitTargetInterceptionHandle = handle as any;
     }
 
-    if (options.returnResolvedPoint)
+    if (options.returnResolvedPoint) {
+      if (hitTargetInterceptionHandle) {
+        const handle = hitTargetInterceptionHandle;
+        hitTargetInterceptionHandle = undefined;
+        const stopHitTargetInterception = this._frame.raceAgainstEvaluationStallingEvents(() => {
+          return handle.evaluate(h => h.stop());
+        }).catch(e => 'done' as const).finally(() => {
+          handle.dispose();
+        });
+        const hitTargetResult = await progress.race(stopHitTargetInterception);
+        if (hitTargetResult !== 'done')
+          return hitTargetResult;
+      }
       return { resolvedPoint: point } as any;
+    }
 
     const actionResult = await this._page.frameManager.waitForSignalsCreatedBy(progress, options.waitAfter === true, async progress => {
       if ((options as any).__testHookBeforePointerAction)
