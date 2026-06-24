@@ -102,7 +102,14 @@ const mouseWheel = defineTabTool({
   handle: async (tab, params, response) => {
     response.addCode(`// Scroll mouse wheel`);
     response.addCode(`await page.mouse.wheel(${params.deltaX}, ${params.deltaY});`);
-    await tab.page.mouse.wheel(params.deltaX, params.deltaY);
+    const wheelPoint = await tab.beginAgentRunOverlayWheel();
+    try {
+      if (wheelPoint)
+        await tab.page.mouse.move(wheelPoint.x, wheelPoint.y);
+      await tab.page.mouse.wheel(params.deltaX, params.deltaY);
+    } finally {
+      await tab.endAgentRunOverlayWheel();
+    }
   },
 });
 

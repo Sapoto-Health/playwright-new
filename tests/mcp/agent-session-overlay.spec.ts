@@ -107,6 +107,30 @@ function countOrangeComponentsInRect(png: PNG, minX: number, minY: number, maxX:
   return components;
 }
 
+function warmPixelBoundsAwayFromBorder(png: PNG): { count: number, minX: number, minY: number, maxX: number, maxY: number } {
+  let count = 0;
+  let minX = png.width;
+  let minY = png.height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 24; y < png.height - 24; y++) {
+    for (let x = 24; x < png.width - 24; x++) {
+      const idx = (png.width * y + x) * 4;
+      const r = png.data[idx];
+      const g = png.data[idx + 1];
+      const b = png.data[idx + 2];
+      if (r <= 180 || g <= 90 || g >= 220 || b >= 120)
+        continue;
+      count++;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  return { count, minX, minY, maxX, maxY };
+}
+
 test('agent-session overlay is visible to the live page but hidden from browser_snapshot', async ({ startClient, server }) => {
   const { client } = await startClient();
   await client.callTool({
@@ -466,4 +490,182 @@ test('agent-run overlay animates coordinate clicks before action with one click 
   expect(countOrangePixelsInRect(png, 240, 190, 264, 214)).toBeLessThan(20);
   expect(countOrangePixelsInRect(png, 100, 130, 140, 170)).toBeGreaterThan(20);
   expect(countOrangeComponentsInRect(png, 90, 120, 150, 180)).toBe(2);
+});
+
+test('agent-run overlay shows wheel mode at the last cursor point before scrolling', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Wheel</title>
+    <body style="margin:0;background:#050505;height:1600px">
+      <script>
+        document.addEventListener("wheel", event => {
+          window.wheelAt = performance.now();
+          window.wheelPoint = [event.clientX, event.clientY];
+        }, { passive: true });
+      </script>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.goto(server.PREFIX);
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
+  await client.callTool({ name: 'browser_snapshot' });
+  await client.callTool({
+    name: 'browser_mouse_move_xy',
+    arguments: { x: 120, y: 150 },
+  });
+  await page.evaluate(() => (window as any).wheelStartedAt = performance.now());
+
+  expect(await client.callTool({
+    name: 'browser_mouse_wheel',
+    arguments: { deltaX: 0, deltaY: 240 },
+  })).toHaveResponse({
+    code: expect.stringContaining('await page.mouse.wheel(0, 240);'),
+  });
+
+  await expect.poll(() => page.evaluate(() => (window as any).wheelAt)).toBeTruthy();
+  const wheelElapsed = await page.evaluate(() => (window as any).wheelAt - (window as any).wheelStartedAt);
+  expect(wheelElapsed).toBeGreaterThanOrEqual(120);
+  expect(await page.evaluate(() => (window as any).wheelPoint)).toEqual([120, 150]);
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  expect(await page.evaluate(() => ({
+    actionCursorCount: document.querySelectorAll('x-pw-action-cursor').length,
+    actionPointCount: document.querySelectorAll('x-pw-action-point').length,
+  }))).toEqual({ actionCursorCount: 0, actionPointCount: 0 });
+  const png = PNG.sync.read(await page.screenshot());
+  expect(countOrangePixelsInRect(png, 100, 130, 140, 170)).toBeGreaterThan(20);
+  expect(countOrangePixelsInRect(png, 240, 190, 264, 214)).toBeLessThan(20);
+});
+
+test('agent-run overlay initializes first wheel action at viewport center', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay First Wheel</title>
+    <body style="margin:0;background:#050505;height:1600px">
+      <script>
+        document.addEventListener("wheel", event => {
+          window.wheelAt = performance.now();
+          window.wheelPoint = [event.clientX, event.clientY];
+        }, { passive: true });
+      </script>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.goto(server.PREFIX);
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
+  await client.callTool({ name: 'browser_snapshot' });
+  await page.evaluate(() => (window as any).wheelStartedAt = performance.now());
+
+  await client.callTool({
+    name: 'browser_mouse_wheel',
+    arguments: { deltaX: 0, deltaY: 240 },
+  });
+
+  await expect.poll(() => page.evaluate(() => (window as any).wheelAt)).toBeTruthy();
+  const wheelElapsed = await page.evaluate(() => (window as any).wheelAt - (window as any).wheelStartedAt);
+  expect(wheelElapsed).toBeGreaterThanOrEqual(120);
+  expect(await page.evaluate(() => (window as any).wheelPoint)).toEqual([250, 200]);
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  expect(await page.evaluate(() => ({
+    actionCursorCount: document.querySelectorAll('x-pw-action-cursor').length,
+    actionPointCount: document.querySelectorAll('x-pw-action-point').length,
+  }))).toEqual({ actionCursorCount: 0, actionPointCount: 0 });
+  const png = PNG.sync.read(await page.screenshot());
+  expect(countOrangePixelsInRect(png, 230, 180, 270, 220)).toBeGreaterThan(20);
+  expect(countOrangePixelsInRect(png, 100, 130, 140, 170)).toBeLessThan(20);
+});
+
+test('agent-run overlay switches one cursor into wheel mode and back to pointer', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Wheel Mode</title>
+    <body style="margin:0;background:#050505;height:1600px"></body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.goto(server.PREFIX);
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
+  await client.callTool({ name: 'browser_snapshot' });
+  await client.callTool({
+    name: 'browser_mouse_move_xy',
+    arguments: { x: 120, y: 150 },
+  });
+
+  const wheelCall = client.callTool({
+    name: 'browser_mouse_wheel',
+    arguments: { deltaX: 0, deltaY: 240 },
+  });
+  await page.waitForTimeout(60);
+  const during = PNG.sync.read(await page.screenshot());
+  await wheelCall;
+  const afterBuffer = await page.screenshot();
+  const after = PNG.sync.read(afterBuffer);
+
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  expect(await page.evaluate(() => ({
+    actionCursorCount: document.querySelectorAll('x-pw-action-cursor').length,
+    actionPointCount: document.querySelectorAll('x-pw-action-point').length,
+  }))).toEqual({ actionCursorCount: 0, actionPointCount: 0 });
+  const duringBounds = warmPixelBoundsAwayFromBorder(during);
+  const afterBounds = warmPixelBoundsAwayFromBorder(after);
+  expect(duringBounds.count).toBeGreaterThan(afterBounds.count + 20);
+  expect(afterBounds.count).toBeGreaterThan(20);
+  expect(countOrangePixelsInRect(after, 240, 190, 264, 214)).toBeLessThan(20);
+});
+
+test('agent-run overlay respects reduced motion for wheel mode', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Reduced Motion Wheel</title>
+    <body style="margin:0;background:#050505;height:1600px">
+      <script>
+        document.addEventListener("wheel", event => {
+          window.wheelAt = performance.now();
+          window.wheelPoint = [event.clientX, event.clientY];
+        }, { passive: true });
+      </script>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.addInitScript(() => {
+    const originalMatchMedia = window.matchMedia.bind(window);
+    window.matchMedia = (query: string) => {
+      if (query === '(prefers-reduced-motion: reduce)')
+        return { matches: true, media: query, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false };
+      return originalMatchMedia(query);
+    };
+  });
+  await page.goto(server.PREFIX);
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
+  await client.callTool({ name: 'browser_snapshot' });
+  await client.callTool({
+    name: 'browser_mouse_move_xy',
+    arguments: { x: 120, y: 150 },
+  });
+  await page.evaluate(() => (window as any).wheelStartedAt = performance.now());
+
+  await client.callTool({
+    name: 'browser_mouse_wheel',
+    arguments: { deltaX: 0, deltaY: 240 },
+  });
+
+  await expect.poll(() => page.evaluate(() => (window as any).wheelAt)).toBeTruthy();
+  const wheelElapsed = await page.evaluate(() => (window as any).wheelAt - (window as any).wheelStartedAt);
+  expect(wheelElapsed).toBeLessThan(120);
+  expect(await page.evaluate(() => (window as any).wheelPoint)).toEqual([120, 150]);
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  expect(await page.evaluate(() => ({
+    actionCursorCount: document.querySelectorAll('x-pw-action-cursor').length,
+    actionPointCount: document.querySelectorAll('x-pw-action-point').length,
+  }))).toEqual({ actionCursorCount: 0, actionPointCount: 0 });
 });

@@ -112,6 +112,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private _agentSessionOverlayInitScriptDisposable: Disposable | undefined;
   private _agentSessionOverlayScript: string | undefined;
   private _agentSessionOverlayControlToken: string | undefined;
+  private _agentSessionOverlayCursorPoint: { x: number, y: number } | undefined;
   readonly actionTimeoutOptions: { timeout?: number; };
   readonly navigationTimeoutOptions: { timeout?: number; };
   readonly expectTimeoutOptions: { timeout?: number; };
@@ -265,6 +266,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     if (!this._isAgentSessionOverlayCursorVisible())
       return;
     await this._evaluateAgentSessionOverlayCursorHelper('moveCursor', x, y);
+    this._agentSessionOverlayCursorPoint = { x, y };
   }
 
   async pulseAgentSessionClick(x: number, y: number) {
@@ -299,6 +301,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     if (!this.context.config.agentRunOverlay || !this._isAgentSessionOverlayCursorVisible())
       return false;
     await this._evaluateAgentSessionOverlayCursorHelper('pulseClick', x, y);
+    this._agentSessionOverlayCursorPoint = { x, y };
     await this._waitForAgentRunOverlayPointerAnimation();
     return true;
   }
@@ -310,6 +313,22 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     if (!point)
       return false;
     return await this.animateAgentRunOverlayClick(point.x, point.y);
+  }
+
+  async beginAgentRunOverlayWheel(): Promise<{ x: number, y: number } | undefined> {
+    if (!this.context.config.agentRunOverlay || !this._isAgentSessionOverlayCursorVisible())
+      return undefined;
+    const point = this._agentSessionOverlayCursorPoint ?? await this._agentSessionOverlayViewportCenter();
+    await this._evaluateAgentSessionOverlayCursorHelper('beginScroll', point.x, point.y);
+    this._agentSessionOverlayCursorPoint = point;
+    await this._waitForAgentRunOverlayPointerAnimation();
+    return point;
+  }
+
+  async endAgentRunOverlayWheel() {
+    if (!this.context.config.agentRunOverlay || !this._isAgentSessionOverlayCursorVisible())
+      return;
+    await this._evaluateAgentSessionOverlayCursorHelper('endScroll');
   }
 
   private _isAgentSessionOverlayCursorVisible(): boolean {
@@ -347,6 +366,23 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     } catch (e) {
       debug('pw:tools:error')(e);
       return undefined;
+    }
+  }
+
+  private async _agentSessionOverlayViewportCenter(): Promise<{ x: number, y: number }> {
+    try {
+      await this._initializedPromise;
+      return await this.page.evaluate(() => ({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      }));
+    } catch (e) {
+      debug('pw:tools:error')(e);
+      const viewport = this.page.viewportSize();
+      return {
+        x: (viewport?.width ?? 1280) / 2,
+        y: (viewport?.height ?? 720) / 2,
+      };
     }
   }
 
@@ -399,24 +435,34 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     }
   }
 
-  private async _evaluateAgentSessionOverlayCursorHelper(method: 'moveCursor' | 'pulseClick', x: number, y: number) {
+  private async _evaluateAgentSessionOverlayCursorHelper(method: 'moveCursor' | 'pulseClick' | 'beginScroll' | 'endScroll', x?: number, y?: number) {
     try {
       await this._initializedPromise;
       await this.page.evaluate(({ globalName, method, controlToken, x, y }) => {
         const helper = (window as unknown as Record<string, {
           moveCursor?: (controlToken: string | undefined, x: number, y: number) => unknown;
           pulseClick?: (controlToken: string | undefined, x: number, y: number) => unknown;
+          beginScroll?: (controlToken: string | undefined, x: number, y: number) => unknown;
+          endScroll?: (controlToken: string | undefined) => unknown;
         } | undefined>)[globalName];
         if (!helper || typeof helper !== 'object')
           return;
         switch (method) {
           case 'moveCursor':
-            if (typeof helper.moveCursor === 'function')
+            if (typeof helper.moveCursor === 'function' && typeof x === 'number' && typeof y === 'number')
               helper.moveCursor(controlToken, x, y);
             break;
           case 'pulseClick':
-            if (typeof helper.pulseClick === 'function')
+            if (typeof helper.pulseClick === 'function' && typeof x === 'number' && typeof y === 'number')
               helper.pulseClick(controlToken, x, y);
+            break;
+          case 'beginScroll':
+            if (typeof helper.beginScroll === 'function' && typeof x === 'number' && typeof y === 'number')
+              helper.beginScroll(controlToken, x, y);
+            break;
+          case 'endScroll':
+            if (typeof helper.endScroll === 'function')
+              helper.endScroll(controlToken);
             break;
         }
       }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, method, controlToken: this._agentSessionOverlayControlToken, x, y });
