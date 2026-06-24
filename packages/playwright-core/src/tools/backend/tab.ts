@@ -133,6 +133,10 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       eventsHelper.addEventListener(p, 'requestfailed', request => this._handleRequestFailed(request)),
       eventsHelper.addEventListener(p, 'close', () => this._onClose()),
       eventsHelper.addEventListener(p, 'crash', () => { this.crashed = true; }),
+      eventsHelper.addEventListener(p, 'framenavigated', frame => {
+        if (frame === p.mainFrame())
+          this.restoreAgentRunOverlayState().catch(e => debug('pw:tools:error')(e));
+      }),
       eventsHelper.addEventListener(p, 'filechooser', chooser => {
         this.setModalState({
           type: 'fileChooser',
@@ -248,6 +252,39 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     await this._evaluateAgentSessionOverlayHelper('show');
   }
 
+  async setAgentSessionOverlayVisible(visible: boolean) {
+    await this._evaluateAgentSessionOverlayHelper(visible ? 'show' : 'hide');
+  }
+
+  async setAgentRunOverlayActive(active: boolean) {
+    if (!this.context.config.agentRunOverlay) {
+      await this.setAgentSessionOverlayVisible(active);
+      return;
+    }
+    if (!active) {
+      await this.setAgentSessionOverlayVisible(false);
+      return;
+    }
+    await this.restoreAgentRunOverlayState();
+  }
+
+  async restoreAgentRunOverlayState() {
+    if (!this.context.config.agentRunOverlay)
+      return;
+    if (!this.isCurrentTab()) {
+      await this.setAgentSessionOverlayVisible(false);
+      return;
+    }
+    await this.setAgentSessionOverlayVisible(true);
+    if (!this._isAgentSessionOverlayCursorVisible())
+      return;
+    const previousPoint = this._agentSessionOverlayCursorPoint;
+    const point = await this._clampedAgentSessionOverlayPoint(previousPoint ?? await this._agentSessionOverlayViewportCenter());
+    await this._evaluateAgentSessionOverlayCursorHelper('showIdle', point.x, point.y);
+    if (previousPoint)
+      this._agentSessionOverlayCursorPoint = point;
+  }
+
   async removeAgentSessionOverlay() {
     await this._evaluateAgentSessionOverlayHelper('remove');
   }
@@ -318,7 +355,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   async beginAgentRunOverlayWheel(): Promise<{ x: number, y: number } | undefined> {
     if (!this.context.config.agentRunOverlay || !this._isAgentSessionOverlayCursorVisible())
       return undefined;
-    const point = this._agentSessionOverlayCursorPoint ?? await this._agentSessionOverlayViewportCenter();
+    const point = await this._clampedAgentSessionOverlayPoint(this._agentSessionOverlayCursorPoint ?? await this._agentSessionOverlayViewportCenter());
     await this._evaluateAgentSessionOverlayCursorHelper('beginScroll', point.x, point.y);
     this._agentSessionOverlayCursorPoint = point;
     await this._waitForAgentRunOverlayPointerAnimation();
@@ -386,6 +423,27 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     }
   }
 
+  private async _clampedAgentSessionOverlayPoint(point: { x: number, y: number }): Promise<{ x: number, y: number }> {
+    try {
+      await this._initializedPromise;
+      const viewport = await this.page.evaluate(() => ({
+        width: Math.max(1, window.innerWidth),
+        height: Math.max(1, window.innerHeight),
+      }));
+      return {
+        x: Math.max(0, Math.min(Math.max(0, viewport.width - 20), point.x)),
+        y: Math.max(0, Math.min(Math.max(0, viewport.height - 20), point.y)),
+      };
+    } catch (e) {
+      debug('pw:tools:error')(e);
+      const viewport = this.page.viewportSize();
+      return {
+        x: Math.max(0, Math.min(Math.max(0, (viewport?.width ?? 1280) - 20), point.x)),
+        y: Math.max(0, Math.min(Math.max(0, (viewport?.height ?? 720) - 20), point.y)),
+      };
+    }
+  }
+
   private async _evaluateAgentSessionOverlayHelper(method: 'hide' | 'show' | 'remove') {
     try {
       await this._initializedPromise;
@@ -435,7 +493,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     }
   }
 
-  private async _evaluateAgentSessionOverlayCursorHelper(method: 'moveCursor' | 'pulseClick' | 'beginScroll' | 'endScroll', x?: number, y?: number) {
+  private async _evaluateAgentSessionOverlayCursorHelper(method: 'moveCursor' | 'pulseClick' | 'beginScroll' | 'endScroll' | 'showIdle', x?: number, y?: number) {
     try {
       await this._initializedPromise;
       await this.page.evaluate(({ globalName, method, controlToken, x, y }) => {
@@ -444,6 +502,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
           pulseClick?: (controlToken: string | undefined, x: number, y: number) => unknown;
           beginScroll?: (controlToken: string | undefined, x: number, y: number) => unknown;
           endScroll?: (controlToken: string | undefined) => unknown;
+          showIdle?: (controlToken: string | undefined, x: number, y: number) => unknown;
         } | undefined>)[globalName];
         if (!helper || typeof helper !== 'object')
           return;
@@ -463,6 +522,10 @@ export class Tab extends EventEmitter<TabEventsInterface> {
           case 'endScroll':
             if (typeof helper.endScroll === 'function')
               helper.endScroll(controlToken);
+            break;
+          case 'showIdle':
+            if (typeof helper.showIdle === 'function' && typeof x === 'number' && typeof y === 'number')
+              helper.showIdle(controlToken, x, y);
             break;
         }
       }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, method, controlToken: this._agentSessionOverlayControlToken, x, y });

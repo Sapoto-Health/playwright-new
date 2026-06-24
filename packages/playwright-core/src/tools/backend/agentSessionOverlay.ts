@@ -347,6 +347,22 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
     }
   };
 
+  const showIdle = (x, y) => {
+    if (!CURSOR_VISIBLE)
+      return true;
+    if (!cursor)
+      return false;
+    const moved = setCursorPosition(x, y);
+    try {
+      cursor.classList.remove('scroll');
+      cursor.classList.add('visible');
+      cursor.classList.add('idle');
+      return moved;
+    } catch (_) {
+      return false;
+    }
+  };
+
   const pulseClick = (x, y) => {
     if (!CURSOR_VISIBLE)
       return true;
@@ -503,6 +519,12 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
         return false;
       appendHost();
       return endScroll();
+    },
+    showIdle: (token, x, y) => {
+      if (!isAuthorized(token))
+        return false;
+      appendHost();
+      return showIdle(x, y);
     },
   };
 
