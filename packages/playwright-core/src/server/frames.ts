@@ -1221,8 +1221,11 @@ export class Frame extends SdkObject<FrameEventMap> {
     });
   }
 
-  async click(progress: Progress, selector: string, options: { noWaitAfter?: boolean } & types.MouseClickOptions & types.PointerActionWaitOptions) {
-    return dom.assertDone(await this._retryWithProgressIfNotConnected(progress, selector, options, (progress, handle) => handle._click(progress, { ...options, waitAfter: !options.noWaitAfter })));
+  async click(progress: Progress, selector: string, options: { noWaitAfter?: boolean, returnResolvedPoint?: boolean } & types.MouseClickOptions & types.PointerActionWaitOptions): Promise<dom.ResolvedClickPoint | void> {
+    const result = await this._retryWithProgressIfNotConnected(progress, selector, options, (progress, handle) => handle._click(progress, { ...options, waitAfter: !options.noWaitAfter }));
+    if (typeof result === 'object' && 'resolvedPoint' in result)
+      return result;
+    return dom.assertDone(result);
   }
 
   async dblclick(progress: Progress, selector: string, options: types.MouseMultiClickOptions & types.PointerActionWaitOptions) {

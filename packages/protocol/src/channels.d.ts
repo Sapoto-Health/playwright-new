@@ -2531,6 +2531,7 @@ export type FrameClickParams = {
   timeout: number,
   trial?: boolean,
   steps?: number,
+  returnResolvedPoint?: boolean,
 };
 export type FrameClickOptions = {
   strict?: boolean,
@@ -2543,8 +2544,11 @@ export type FrameClickOptions = {
   clickCount?: number,
   trial?: boolean,
   steps?: number,
+  returnResolvedPoint?: boolean,
 };
-export type FrameClickResult = void;
+export type FrameClickResult = {
+  resolvedPoint?: Point,
+};
 export type FrameContentParams = {};
 export type FrameContentOptions = {};
 export type FrameContentResult = {

@@ -306,7 +306,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   async animateAgentRunOverlayClickOnLocator(locator: playwright.Locator): Promise<boolean> {
     if (!this.context.config.agentRunOverlay || !this._isAgentSessionOverlayCursorVisible())
       return false;
-    const point = await this._agentSessionLocatorCenter(locator);
+    const point = await this._agentRunOverlayResolvedClickPoint(locator);
     if (!point)
       return false;
     return await this.animateAgentRunOverlayClick(point.x, point.y);
@@ -332,6 +332,22 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     if (reducedMotion)
       return;
     await this.page.waitForTimeout(180).catch(e => debug('pw:tools:error')(e));
+  }
+
+  private async _agentRunOverlayResolvedClickPoint(locator: playwright.Locator): Promise<{ x: number, y: number } | undefined> {
+    try {
+      await this._initializedPromise;
+      const timeout = this.context.config.timeouts?.action;
+      const resolver = (locator as playwright.Locator & {
+        _resolveClickPoint?: (options?: { timeout?: number }) => Promise<{ x: number, y: number } | undefined>;
+      })._resolveClickPoint;
+      if (!resolver)
+        return undefined;
+      return await resolver.call(locator, { timeout });
+    } catch (e) {
+      debug('pw:tools:error')(e);
+      return undefined;
+    }
   }
 
   private async _evaluateAgentSessionOverlayHelper(method: 'hide' | 'show' | 'remove') {

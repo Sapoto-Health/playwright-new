@@ -39,6 +39,7 @@ export type InputFilesItems = {
 };
 
 type ActionName = 'click' | 'hover' | 'dblclick' | 'tap' | 'move and up' | 'move and down' | 'drop';
+export type ResolvedClickPoint = { resolvedPoint: types.Point };
 type PerformActionResult = 'error:notvisible' | 'error:notconnected' | 'error:notinviewport' | 'error:optionsnotfound' | 'error:optionnotenabled' | { missingState: ElementState } | { hitTargetDescription: string } | 'done';
 
 export class NonRecoverableDOMError extends Error {
@@ -377,7 +378,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
   }
 
   async _retryPointerAction(progress: Progress, actionName: ActionName, waitForEnabled: boolean, action: (progress: Progress, point: types.Point) => Promise<void>,
-    options: { waitAfter: boolean | 'disabled' } & types.PointerActionOptions & types.PointerActionWaitOptions): Promise<'error:notconnected' | 'done'> {
+    options: { waitAfter: boolean | 'disabled', returnResolvedPoint?: boolean } & types.PointerActionOptions & types.PointerActionWaitOptions): Promise<'error:notconnected' | 'done'> {
     // Note: do not perform locator handlers checkpoint to avoid moving the mouse in the middle of a drag operation.
     const skipActionPreChecks = actionName === 'move and up';
     return await this._retryAction(progress, actionName, async (progress, retry) => {
@@ -402,7 +403,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
     waitForEnabled: boolean,
     action: (progress: Progress, point: types.Point) => Promise<void>,
     forceScrollOptions: ScrollIntoViewOptions | undefined,
-    options: { waitAfter: boolean | 'disabled' } & types.PointerActionOptions & types.PointerActionWaitOptions,
+    options: { waitAfter: boolean | 'disabled', returnResolvedPoint?: boolean } & types.PointerActionOptions & types.PointerActionWaitOptions,
   ): Promise<PerformActionResult> {
     const { force = false, position } = options;
 
@@ -477,6 +478,9 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
       hitTargetInterceptionHandle = handle as any;
     }
 
+    if (options.returnResolvedPoint)
+      return { resolvedPoint: point } as any;
+
     const actionResult = await this._page.frameManager.waitForSignalsCreatedBy(progress, options.waitAfter === true, async progress => {
       if ((options as any).__testHookBeforePointerAction)
         await progress.race((options as any).__testHookBeforePointerAction());
@@ -537,12 +541,12 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
 
   async click(progress: Progress, options: { noWaitAfter?: boolean } & types.MouseClickOptions & types.PointerActionWaitOptions): Promise<void> {
     await this._markAsTargetElement(progress);
-    const result = await this._click(progress, { ...options, waitAfter: !options.noWaitAfter });
+    const result = await this._click(progress, { ...options, waitAfter: !options.noWaitAfter }) as 'error:notconnected' | 'done';
     return assertDone(throwRetargetableDOMError(result));
   }
 
-  _click(progress: Progress, options: { waitAfter: boolean | 'disabled' } & types.MouseClickOptions & types.PointerActionWaitOptions): Promise<'error:notconnected' | 'done'> {
-    return this._retryPointerAction(progress, 'click', true /* waitForEnabled */, (progress, point) => this._page.mouse.click(progress, point.x, point.y, options), options);
+  _click(progress: Progress, options: { waitAfter: boolean | 'disabled', returnResolvedPoint?: boolean } & types.MouseClickOptions & types.PointerActionWaitOptions): Promise<'error:notconnected' | ResolvedClickPoint | 'done'> {
+    return this._retryPointerAction(progress, 'click', true /* waitForEnabled */, (progress, point) => this._page.mouse.click(progress, point.x, point.y, options), options) as Promise<'error:notconnected' | ResolvedClickPoint | 'done'>;
   }
 
   async dblclick(progress: Progress, options: types.MouseMultiClickOptions & types.PointerActionWaitOptions): Promise<void> {
@@ -831,7 +835,7 @@ export class ElementHandle<T extends Node = Node> extends js.JSHandle<T> {
       return 'done';
     if (!state && checkedState.isRadio)
       throw new NonRecoverableDOMError('Cannot uncheck radio button. Radio buttons can only be unchecked by selecting another radio button in the same group.');
-    const result = await this._click(progress, { ...options, waitAfter: 'disabled' });
+    const result = await this._click(progress, { ...options, waitAfter: 'disabled' }) as 'error:notconnected' | 'done';
     if (result !== 'done')
       return result;
     if (options.trial)

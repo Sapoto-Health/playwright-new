@@ -70,6 +70,43 @@ function countOrangePixelsInRect(png: PNG, minX: number, minY: number, maxX: num
   return orange;
 }
 
+function countOrangeComponentsInRect(png: PNG, minX: number, minY: number, maxX: number, maxY: number): number {
+  const width = Math.max(0, maxX - minX);
+  const height = Math.max(0, maxY - minY);
+  const seen = new Uint8Array(width * height);
+  const isOrange = (x: number, y: number) => {
+    const idx = (png.width * y + x) * 4;
+    const r = png.data[idx];
+    const g = png.data[idx + 1];
+    const b = png.data[idx + 2];
+    return r > 200 && g > 60 && g < 180 && b < 90;
+  };
+  let components = 0;
+  for (let y = minY; y < maxY; y++) {
+    for (let x = minX; x < maxX; x++) {
+      const start = (y - minY) * width + (x - minX);
+      if (seen[start] || !isOrange(x, y))
+        continue;
+      components++;
+      const queue = [[x, y]];
+      seen[start] = 1;
+      for (let i = 0; i < queue.length; i++) {
+        const [cx, cy] = queue[i];
+        for (const [nx, ny] of [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]]) {
+          if (nx < minX || nx >= maxX || ny < minY || ny >= maxY)
+            continue;
+          const offset = (ny - minY) * width + (nx - minX);
+          if (seen[offset] || !isOrange(nx, ny))
+            continue;
+          seen[offset] = 1;
+          queue.push([nx, ny]);
+        }
+      }
+    }
+  }
+  return components;
+}
+
 test('agent-session overlay is visible to the live page but hidden from browser_snapshot', async ({ startClient, server }) => {
   const { client } = await startClient();
   await client.callTool({
@@ -320,8 +357,8 @@ test('agent-run overlay animates locator clicks before action with one click eff
     <title>Agent Run Overlay Click</title>
     <body style="margin:0;background:#050505;min-height:400px">
       <button
-        style="position:fixed;left:320px;top:220px;width:80px;height:60px"
-        onclick="window.clickedAt = performance.now()"
+        style="position:fixed;left:100px;top:220px;width:500px;height:60px"
+        onclick="window.clickedAt = performance.now(); window.clickedPoint = [event.clientX, event.clientY]"
       >Submit</button>
     </body>
   `, 'text/html');
@@ -342,11 +379,17 @@ test('agent-run overlay animates locator clicks before action with one click eff
 
   const clickElapsed = await page.evaluate(() => (window as any).clickedAt - (window as any).clickStartedAt);
   expect(clickElapsed).toBeGreaterThanOrEqual(120);
+  expect(await page.evaluate(() => (window as any).clickedPoint)).toEqual([300, 250]);
   expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  expect(await page.evaluate(() => ({
+    actionCursorCount: document.querySelectorAll('x-pw-action-cursor').length,
+    actionPointCount: document.querySelectorAll('x-pw-action-point').length,
+  }))).toEqual({ actionCursorCount: 0, actionPointCount: 0 });
   const png = PNG.sync.read(await page.screenshot());
   expect(countOrangePixelsInRect(png, 240, 190, 264, 214)).toBeLessThan(20);
-  expect(countOrangePixelsInRect(png, 340, 240, 380, 280)).toBeGreaterThan(20);
-  expect(countOrangePixelsInRect(png, 330, 230, 390, 290)).toBeLessThan(700);
+  expect(countOrangePixelsInRect(png, 280, 230, 320, 270)).toBeGreaterThan(20);
+  expect(countOrangePixelsInRect(png, 340, 230, 360, 270)).toBeLessThan(20);
+  expect(countOrangeComponentsInRect(png, 260, 220, 380, 290)).toBe(1);
 });
 
 test('agent-run overlay animates coordinate clicks before action with one click effect', async ({ cdpServer, startClient, server }) => {
@@ -385,8 +428,12 @@ test('agent-run overlay animates coordinate clicks before action with one click 
   expect(clickElapsed).toBeGreaterThanOrEqual(120);
   expect(await page.evaluate(() => (window as any).clickedPoint)).toEqual([120, 150]);
   expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  expect(await page.evaluate(() => ({
+    actionCursorCount: document.querySelectorAll('x-pw-action-cursor').length,
+    actionPointCount: document.querySelectorAll('x-pw-action-point').length,
+  }))).toEqual({ actionCursorCount: 0, actionPointCount: 0 });
   const png = PNG.sync.read(await page.screenshot());
   expect(countOrangePixelsInRect(png, 240, 190, 264, 214)).toBeLessThan(20);
   expect(countOrangePixelsInRect(png, 100, 130, 140, 170)).toBeGreaterThan(20);
-  expect(countOrangePixelsInRect(png, 90, 120, 150, 180)).toBeLessThan(700);
+  expect(countOrangeComponentsInRect(png, 90, 120, 150, 180)).toBe(2);
 });
