@@ -68,6 +68,16 @@ it('agent-session overlay exposes token-gated cursor helpers from Tab', () => {
   expect(src).toContain('helper.pulseClick(controlToken, x, y)');
 });
 
+it('agent-run overlay mode starts the cursor idle at viewport center and respects reduced motion', () => {
+  const src = buildOverlayScript({ agentRunOverlay: true });
+
+  expect(src).toContain('const AGENT_RUN_OVERLAY = true;');
+  expect(src).toContain('setCursorPosition(window.innerWidth / 2, window.innerHeight / 2)');
+  expect(src).toContain('sapoto-idle-cursor 1600ms ease-in-out infinite');
+  expect(src).toContain('@media (prefers-reduced-motion: reduce)');
+  expect(src).toContain('animation: none !important;');
+});
+
 it('agent-session overlay unregisters future injection before removing the current host on dispose', () => {
   const src = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/tab.ts'), 'utf8');
   const disposeStart = src.indexOf('async dispose()');

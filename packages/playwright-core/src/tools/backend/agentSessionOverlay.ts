@@ -18,6 +18,7 @@ import { createGuid } from '@utils/crypto';
 
 export type AgentSessionOverlayOptions = {
   statusText?: string;
+  agentRunOverlay?: boolean;
   cursor?: 'visible' | 'hidden';
   documentFetch?: AgentSessionOverlayDocumentFetchOptions;
 };
@@ -58,12 +59,16 @@ export function createAgentSessionOverlayScript(options: AgentSessionOverlayOpti
 }
 
 export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, controlToken = createGuid()): string {
+  const options = {
+    agentRunOverlay: !!_options.agentRunOverlay,
+  };
   const cursorVisible = _options.cursor !== 'hidden';
   return `(() => {
   const HOST_TAG = ${JSON.stringify(AGENT_SESSION_OVERLAY_HOST)};
   const GLOBAL_NAME = ${JSON.stringify(AGENT_SESSION_OVERLAY_GLOBAL)};
   const OWNED_MARKER = ${JSON.stringify(AGENT_SESSION_OVERLAY_OWNED_MARKER)};
   const CONTROL_TOKEN = ${JSON.stringify(controlToken)};
+  const AGENT_RUN_OVERLAY = ${JSON.stringify(options.agentRunOverlay)};
   const CURSOR_VISIBLE = ${JSON.stringify(cursorVisible)};
 
   try {
@@ -71,6 +76,23 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       return;
   } catch (_) {
     return;
+  }
+
+  const existingDescriptor = (() => {
+    try { return Object.getOwnPropertyDescriptor(window, GLOBAL_NAME); } catch (_) { return undefined; }
+  })();
+  if (existingDescriptor && existingDescriptor.configurable === false) {
+    const existingApi = window[GLOBAL_NAME];
+    const existingHost = (() => {
+      try { return document.querySelector(HOST_TAG); } catch (_) { return null; }
+    })();
+    if (existingHost) {
+      try {
+        if (existingApi && typeof existingApi === 'object' && typeof existingApi.ensure === 'function')
+          existingApi.ensure();
+      } catch (_) {}
+      return;
+    }
   }
 
   let host;
@@ -192,6 +214,13 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       .cursor.visible {
         opacity: 1 !important;
       }
+      .cursor.idle {
+        animation: sapoto-idle-cursor 1600ms ease-in-out infinite !important;
+      }
+      @keyframes sapoto-idle-cursor {
+        0%, 100% { filter: drop-shadow(0 0 0 rgba(255, 122, 24, 0.16)); }
+        50% { filter: drop-shadow(0 0 8px rgba(255, 122, 24, 0.68)); }
+      }
       .pulse {
         position: fixed !important;
         left: 0 !important;
@@ -220,6 +249,14 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       }
       @media (prefers-reduced-motion: reduce) {
         .glow, .glow-inner, .pulse {
+          animation: none !important;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .cursor {
+          transition-duration: 0.01ms !important;
+        }
+        .cursor.idle {
           animation: none !important;
         }
       }
@@ -260,6 +297,7 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
     try {
       cursor.style.setProperty('transform', 'translate3d(' + safeX + 'px, ' + safeY + 'px, 0)', 'important');
       cursor.classList.add('visible');
+      cursor.classList.remove('idle');
       return true;
     } catch (_) {
       return false;
@@ -318,21 +356,40 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       root.appendChild(cursor);
     }
 
+    shadow.appendChild(root);
+    if (AGENT_RUN_OVERLAY) {
+      try {
+        if (cursor) {
+          cursor.classList.add('idle');
+          setCursorPosition(window.innerWidth / 2, window.innerHeight / 2);
+          cursor.classList.add('idle');
+        }
+      } catch (_) {
+      }
+    }
+    const reduceMotion = (() => {
+      try {
+        return !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      } catch (_) {
+        return false;
+      }
+    })();
     try {
-      glow.animate([
-        { boxShadow: 'inset 0 0 0 2px rgba(212, 160, 23, 0.94), inset 0 0 18px rgba(240, 192, 64, 0.36)' },
-        { boxShadow: 'inset 0 0 0 4px rgba(212, 160, 23, 0.98), inset 0 0 34px rgba(240, 192, 64, 0.62)' },
-        { boxShadow: 'inset 0 0 0 2px rgba(212, 160, 23, 0.94), inset 0 0 18px rgba(240, 192, 64, 0.36)' },
-      ], { duration: 2000, iterations: Infinity, easing: 'ease-in-out' });
-      glowInner.animate([
-        { opacity: 0.58 },
-        { opacity: 0.96 },
-        { opacity: 0.58 },
-      ], { duration: 2200, iterations: Infinity, easing: 'ease-in-out' });
+      if (!reduceMotion) {
+        glow.animate([
+          { boxShadow: 'inset 0 0 0 2px rgba(212, 160, 23, 0.94), inset 0 0 18px rgba(240, 192, 64, 0.36)' },
+          { boxShadow: 'inset 0 0 0 4px rgba(212, 160, 23, 0.98), inset 0 0 34px rgba(240, 192, 64, 0.62)' },
+          { boxShadow: 'inset 0 0 0 2px rgba(212, 160, 23, 0.94), inset 0 0 18px rgba(240, 192, 64, 0.36)' },
+        ], { duration: 2000, iterations: Infinity, easing: 'ease-in-out' });
+        glowInner.animate([
+          { opacity: 0.58 },
+          { opacity: 0.96 },
+          { opacity: 0.58 },
+        ], { duration: 2200, iterations: Infinity, easing: 'ease-in-out' });
+      }
     } catch (_) {
     }
 
-    shadow.appendChild(root);
   };
 
   const observe = () => {

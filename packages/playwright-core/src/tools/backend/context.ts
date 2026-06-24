@@ -82,6 +82,12 @@ export type ContextConfig = {
   windowOpenCaptureMode?: 'off' | 'passive' | 'active';
 
   /**
+   * Sapoto PRD #1340 / Tracer #1341: when true, enable the private Sapoto
+   * Run overlay baseline for the controlled page.
+   */
+  agentRunOverlay?: boolean;
+
+  /**
    * Sapoto Tracer #1155 (Unit G-ops): when true, exclude embedder-internal
    * pages (`file://`, `data:`, `chrome-extension://`, hostname `localhost`)
    * from `_tabs` and the page-event stream. Same persistent-hide pattern
@@ -332,6 +338,7 @@ export class Context {
       return;
     }
     const overlayScript = createAgentSessionOverlayScript({
+      agentRunOverlay: this.config.agentRunOverlay,
       cursor: this.config.browser?.contextOptions?.actionCursor ? 'hidden' : 'visible',
     });
     const tab = new Tab(this, page, tab => this._onPageClosed(tab), overlayScript.content, overlayScript.controlToken);
