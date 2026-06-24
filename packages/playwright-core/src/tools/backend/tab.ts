@@ -28,7 +28,7 @@ import { LogFile } from './logFile';
 import { ModalState } from './tool';
 import { handleDialog } from './dialogs';
 import { uploadFile } from './files';
-import { AGENT_SESSION_OVERLAY_GLOBAL } from './agentSessionOverlay';
+import { AGENT_SESSION_OVERLAY_GLOBAL, isAgentSessionOverlayBoundInitScriptContent } from './agentSessionOverlay';
 
 import type { Disposable } from '@isomorphic/disposable';
 import type { Context, ContextConfig } from './context';
@@ -191,6 +191,8 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     for (const initScript of this.context.config.browser?.initScript || []) {
       try {
         const content = await fs.promises.readFile(path.resolve(this.context.options.cwd, initScript), 'utf8');
+        if (isAgentSessionOverlayBoundInitScriptContent(content))
+          continue;
         currentPageInitScripts.push(content);
       } catch (e) {
         debug('pw:tools:error')(e);
@@ -260,14 +262,20 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async moveAgentSessionCursor(x: number, y: number) {
+    if (!this._isAgentSessionOverlayCursorVisible())
+      return;
     await this._evaluateAgentSessionOverlayCursorHelper('moveCursor', x, y);
   }
 
   async pulseAgentSessionClick(x: number, y: number) {
+    if (!this._isAgentSessionOverlayCursorVisible())
+      return;
     await this._evaluateAgentSessionOverlayCursorHelper('pulseClick', x, y);
   }
 
   async moveAgentSessionCursorToLocator(locator: playwright.Locator) {
+    if (!this._isAgentSessionOverlayCursorVisible())
+      return;
     const point = await this._agentSessionLocatorCenter(locator);
     if (!point)
       return;
@@ -275,10 +283,16 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async pulseAgentSessionClickOnLocator(locator: playwright.Locator) {
+    if (!this._isAgentSessionOverlayCursorVisible())
+      return;
     const point = await this._agentSessionLocatorCenter(locator);
     if (!point)
       return;
     await this.pulseAgentSessionClick(point.x, point.y);
+  }
+
+  private _isAgentSessionOverlayCursorVisible(): boolean {
+    return !this.context.config.browser?.contextOptions?.actionCursor;
   }
 
   private async _evaluateAgentSessionOverlayHelper(method: 'hide' | 'show' | 'remove') {

@@ -328,6 +328,15 @@ state is still returned, but won't be saved to the disk.
 
 Whether to automatically download all the attachments. Defaults to `true` where all the downloads are accepted.
 
+## context-option-actioncursor
+* langs: js
+- `actionCursor` ?<[boolean]|[Object]>
+  - `duration` ?<[float]> How long the click marker stays visible in milliseconds. Defaults to `800`.
+  - `clickEffect` ?<[ActionCursorClickEffect]<"none"|"point">> Click effect rendered at the action point. Defaults to `"point"`.
+
+When set to `true` or an options object, renders a visible cursor overlay for Playwright pointer actions in headed Chromium.
+The cursor moves smoothly between pointer action points and is hidden from screenshots by default.
+
 ## context-option-ignorehttpserrors
 - `ignoreHTTPSErrors` <[boolean]>
 
@@ -1037,6 +1046,7 @@ between the same pixel in compared images, between zero (strict) and one (lax), 
 
 ## shared-context-params-list-v1.8
 - %%-context-option-acceptdownloads-%%
+- %%-context-option-actioncursor-%%
 - %%-context-option-ignorehttpserrors-%%
 - %%-context-option-bypasscsp-%%
 - %%-context-option-baseURL-%%
@@ -2006,4 +2016,3 @@ In this config:
   * alias-java: ServerAddr
   - `ipAddress` <[string]> IPv4 or IPV6 address of the server.
   - `port` <[int]>
-

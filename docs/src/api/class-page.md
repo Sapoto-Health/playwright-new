@@ -2453,6 +2453,11 @@ it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/We
 Referer header value. If provided it will take preference over the referer header value set by
 [`method: Page.setExtraHTTPHeaders`].
 
+## async method: Page.hideActionCursor
+* since: v1.61
+
+Hides the action cursor overlay on this page and disables future action cursor annotations until [`method: Page.showActionCursor`] is called again.
+
 ## async method: Page.hideHighlight
 * since: v1.60
 
@@ -4282,6 +4287,26 @@ When specified, limits the depth of the snapshot.
 When `true`, appends each element's bounding box as `[box=x,y,width,height]` to the snapshot. Coordinates are
 relative to the viewport, in CSS pixels, as returned by [`Element.getBoundingClientRect()`](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect).
 Defaults to `false`.
+
+## async method: Page.showActionCursor
+* since: v1.61
+- returns: <[Disposable]>
+
+Enables a visible cursor overlay for Playwright pointer actions on this page. Returns a disposable that hides the action cursor when disposed.
+
+The action cursor is intended for headed Chromium runs where observers need to follow pointer movement. It is hidden from screenshots by default.
+
+### option: Page.showActionCursor.duration
+* since: v1.61
+- `duration` ?<[float]>
+
+How long the click marker stays visible in milliseconds. Defaults to `800`.
+
+### option: Page.showActionCursor.clickEffect
+* since: v1.61
+- `clickEffect` ?<[ActionCursorClickEffect]<"none"|"point">>
+
+Click effect rendered at the action point. Defaults to `"point"`.
 
 ## async method: Page.tap
 * since: v1.8

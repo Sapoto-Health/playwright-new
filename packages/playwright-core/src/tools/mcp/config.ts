@@ -36,6 +36,7 @@ type ViewportSize = { width: number; height: number };
 export type CLIOptions = {
   allowedHosts?: string[];
   allowedOrigins?: string[];
+  actionCursor?: boolean;
   allowUnrestrictedFileAccess?: boolean;
   blockedOrigins?: string[];
   blockServiceWorkers?: boolean;
@@ -350,6 +351,8 @@ function configFromCLIOptions(cliOptions: CLIOptions): Config & { configFile?: s
 
   if (cliOptions.grantPermissions)
     contextOptions.permissions = cliOptions.grantPermissions;
+  if (cliOptions.actionCursor)
+    contextOptions.actionCursor = { clickEffect: 'point' };
 
   const config: Config = {
     browser: {
@@ -412,6 +415,7 @@ export function configFromEnv(env?: NodeJS.ProcessEnv): Config & { configFile?: 
   const options: CLIOptions = {};
   options.allowedHosts = commaSeparatedList(e.PLAYWRIGHT_MCP_ALLOWED_HOSTS);
   options.allowedOrigins = semicolonSeparatedList(e.PLAYWRIGHT_MCP_ALLOWED_ORIGINS);
+  options.actionCursor = envToBoolean(e.PLAYWRIGHT_MCP_ACTION_CURSOR);
   options.allowUnrestrictedFileAccess = envToBoolean(e.PLAYWRIGHT_MCP_ALLOW_UNRESTRICTED_FILE_ACCESS);
   options.blockedOrigins = semicolonSeparatedList(e.PLAYWRIGHT_MCP_BLOCKED_ORIGINS);
   options.blockServiceWorkers = envToBoolean(e.PLAYWRIGHT_MCP_BLOCK_SERVICE_WORKERS);

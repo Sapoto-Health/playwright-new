@@ -26,7 +26,7 @@ import { isPathInside, isSystemDirectory, isWritable } from '@utils/fileUtils';
 import { playwright } from '../../inprocess';
 
 import { Tab } from './tab';
-import { createAgentSessionOverlayScript } from './agentSessionOverlay';
+import { createAgentSessionOverlayScript, isAgentSessionOverlayBoundInitScriptContent } from './agentSessionOverlay';
 import { buildArmCaptureBridgeInitScript, buildCaptureBridgeInitScript, isBackgroundTargetUrl } from './captureBridgeInitScript';
 import { isInternalUrl } from './opsFilters';
 
@@ -68,6 +68,7 @@ export type ContextConfig = {
   browser?: {
     initScript?: string[];
     initPage?: string[];
+    contextOptions?: Pick<playwrightTypes.BrowserContextOptions, 'actionCursor'>;
   };
   skillMode?: boolean;
   /**
@@ -336,12 +337,24 @@ export class Context {
       this._startPageVideo(page).catch(() => {});
       return;
     }
-    const overlayScript = createAgentSessionOverlayScript({ agentRunOverlay: this.config.agentRunOverlay });
+    const overlayScript = createAgentSessionOverlayScript({
+      agentRunOverlay: this.config.agentRunOverlay,
+      cursor: this.config.browser?.contextOptions?.actionCursor ? 'hidden' : 'visible',
+    });
     const tab = new Tab(this, page, tab => this._onPageClosed(tab), overlayScript.content, overlayScript.controlToken);
     this._tabs.push(tab);
     if (!this._currentTab)
       this._currentTab = tab;
+    this._showActionCursor(page);
     this._startPageVideo(page).catch(() => {});
+  }
+
+  private _showActionCursor(page: playwrightTypes.Page) {
+    const actionCursor = this.config.browser?.contextOptions?.actionCursor;
+    if (!actionCursor)
+      return;
+    const options = actionCursor === true ? {} : actionCursor;
+    page.showActionCursor(options).catch(e => debug('pw:tools:error')(e));
   }
 
   private _onPageClosed(tab: Tab) {
@@ -491,7 +504,7 @@ export class Context {
 async function isAgentSessionOverlayBoundInitScript(scriptPath: string): Promise<boolean> {
   try {
     const content = await fs.promises.readFile(scriptPath, 'utf8');
-    return content.includes('__sapotoMcpStopRequested');
+    return isAgentSessionOverlayBoundInitScriptContent(content);
   } catch (e) {
     debug('pw:tools:error')(e);
     return false;

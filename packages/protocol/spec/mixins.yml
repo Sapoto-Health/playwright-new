@@ -32,6 +32,16 @@ ShowActionsOptions:
       - none
       - pointer
 
+ActionCursorOptions:
+  type: mixin
+  properties:
+    duration: float?
+    clickEffect:
+      type: enum?
+      literals:
+      - none
+      - point
+
 CommonScreenshotOptions:
   type: mixin
   properties:
@@ -208,6 +218,10 @@ ContextOptions:
           type: object?
           properties:
             $mixin: ShowActionsOptions
+    actionCursor:
+      type: object?
+      properties:
+        $mixin: ActionCursorOptions
     strictSelectors: boolean?
     serviceWorkers:
       type: enum?

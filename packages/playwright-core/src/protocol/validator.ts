@@ -210,6 +210,10 @@ scheme.AndroidDeviceLaunchBrowserParams = tObject({
       cursor: tOptional(tEnum(['none', 'pointer'])),
     })),
   })),
+  actionCursor: tOptional(tObject({
+    duration: tOptional(tFloat),
+    clickEffect: tOptional(tEnum(['none', 'point'])),
+  })),
   strictSelectors: tOptional(tBoolean),
   serviceWorkers: tOptional(tEnum(['allow', 'block'])),
   selectorEngines: tOptional(tArray(tType('SelectorEngine'))),
@@ -495,6 +499,10 @@ scheme.BrowserNewContextParams = tObject({
       cursor: tOptional(tEnum(['none', 'pointer'])),
     })),
   })),
+  actionCursor: tOptional(tObject({
+    duration: tOptional(tFloat),
+    clickEffect: tOptional(tEnum(['none', 'point'])),
+  })),
   strictSelectors: tOptional(tBoolean),
   serviceWorkers: tOptional(tEnum(['allow', 'block'])),
   selectorEngines: tOptional(tArray(tType('SelectorEngine'))),
@@ -571,6 +579,10 @@ scheme.BrowserNewContextForReuseParams = tObject({
       fontSize: tOptional(tInt),
       cursor: tOptional(tEnum(['none', 'pointer'])),
     })),
+  })),
+  actionCursor: tOptional(tObject({
+    duration: tOptional(tFloat),
+    clickEffect: tOptional(tEnum(['none', 'point'])),
   })),
   strictSelectors: tOptional(tBoolean),
   serviceWorkers: tOptional(tEnum(['allow', 'block'])),
@@ -670,6 +682,10 @@ scheme.BrowserContextInitializer = tObject({
         fontSize: tOptional(tInt),
         cursor: tOptional(tEnum(['none', 'pointer'])),
       })),
+    })),
+    actionCursor: tOptional(tObject({
+      duration: tOptional(tFloat),
+      clickEffect: tOptional(tEnum(['none', 'point'])),
     })),
     strictSelectors: tOptional(tBoolean),
     serviceWorkers: tOptional(tEnum(['allow', 'block'])),
@@ -1076,6 +1092,10 @@ scheme.BrowserTypeLaunchPersistentContextParams = tObject({
       fontSize: tOptional(tInt),
       cursor: tOptional(tEnum(['none', 'pointer'])),
     })),
+  })),
+  actionCursor: tOptional(tObject({
+    duration: tOptional(tFloat),
+    clickEffect: tOptional(tEnum(['none', 'point'])),
   })),
   strictSelectors: tOptional(tBoolean),
   serviceWorkers: tOptional(tEnum(['allow', 'block'])),
@@ -2650,6 +2670,13 @@ scheme.PageScreencastShowActionsParams = tObject({
 scheme.PageScreencastShowActionsResult = tOptional(tObject({}));
 scheme.PageScreencastHideActionsParams = tOptional(tObject({}));
 scheme.PageScreencastHideActionsResult = tOptional(tObject({}));
+scheme.PageShowActionCursorParams = tObject({
+  duration: tOptional(tFloat),
+  clickEffect: tOptional(tEnum(['none', 'point'])),
+});
+scheme.PageShowActionCursorResult = tOptional(tObject({}));
+scheme.PageHideActionCursorParams = tOptional(tObject({}));
+scheme.PageHideActionCursorResult = tOptional(tObject({}));
 scheme.PageScreencastStartParams = tObject({
   size: tOptional(tObject({
     width: tInt,

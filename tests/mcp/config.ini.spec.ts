@@ -117,3 +117,16 @@ test('ini config boolean values', async ({ startClient }) => {
   expect(config.browser.contextOptions.bypassCSP).toBe(true);
   expect(config.browser.contextOptions.javaScriptEnabled).toBe(false);
 });
+
+test('ini config coerces action cursor to a boolean context option', async ({ startClient }) => {
+  const { client } = await startClient({
+    config: `
+      capabilities = config
+      browser.contextOptions.actionCursor = true
+    `,
+  });
+
+  const result = await client.callTool({ name: 'browser_get_config' });
+  const config = JSON.parse(parseResponse(result).result);
+  expect(config.browser.contextOptions.actionCursor).toBe(true);
+});

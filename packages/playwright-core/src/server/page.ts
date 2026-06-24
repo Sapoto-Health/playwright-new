@@ -40,6 +40,7 @@ import * as rawBindingsControllerSource from '../generated/bindingsControllerSou
 import { Overlay } from './overlay';
 import { NonRecoverableDOMError } from './dom';
 import { Screencast } from './screencast';
+import { ActionCursor } from './actionCursor';
 import { saveGlobalsSnapshotSource } from './javascript';
 
 import type { Artifact } from './artifact';
@@ -201,6 +202,7 @@ export class Page extends SdkObject<PageEventMap> {
 
   readonly overlay: Overlay;
   readonly screencast: Screencast;
+  readonly actionCursor: ActionCursor;
   _closeReason: string | undefined;
 
   constructor(delegate: PageDelegate, browserContext: BrowserContext) {
@@ -215,6 +217,9 @@ export class Page extends SdkObject<PageEventMap> {
     this.frameManager = new frames.FrameManager(this);
     this.overlay = new Overlay(this);
     this.screencast = new Screencast(this);
+    this.actionCursor = new ActionCursor(this);
+    if (browserContext._options.actionCursor)
+      this.actionCursor.show(browserContext._options.actionCursor);
     if (delegate.pdf)
       this.pdf = delegate.pdf.bind(delegate);
     this.coverage = delegate.coverage ? delegate.coverage() : null;
@@ -232,6 +237,8 @@ export class Page extends SdkObject<PageEventMap> {
         this._opener = openerPageOrError;
     }
     this._markInitialized(error);
+    if (!error && this.browserContext._options.actionCursor)
+      this.actionCursor.show(this.browserContext._options.actionCursor);
   }
 
   private _markInitialized(error: Error | undefined = undefined) {
@@ -296,6 +303,7 @@ export class Page extends SdkObject<PageEventMap> {
   _didClose() {
     this.frameManager.dispose();
     this.screencast.dispose();
+    this.actionCursor.dispose();
     this.overlay.dispose();
     assert(this._closedState !== 'closed', 'Page closed twice');
     this._closedState = 'closed';
@@ -309,6 +317,7 @@ export class Page extends SdkObject<PageEventMap> {
   _didCrash() {
     this.frameManager.dispose();
     this.screencast.dispose();
+    this.actionCursor.dispose();
     this.overlay.dispose();
     this.emit(Page.Events.Crash);
     this._crashed = true;

@@ -50,7 +50,7 @@ function newestPng(outputDir: string): Buffer {
   return fs.readFileSync(path.join(outputDir, files[files.length - 1]));
 }
 
-function countOrangePixels(buffer: Buffer): number {
+function countWarmOverlayPixels(buffer: Buffer): number {
   const png = PNG.sync.read(buffer);
   return countOrangePixelsInRect(png, 0, 0, png.width, png.height);
 }
@@ -128,7 +128,7 @@ test('browser_take_screenshot hides the agent-session overlay during capture', a
 
   await client.callTool({ name: 'browser_take_screenshot' });
 
-  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect(countWarmOverlayPixels(newestPng(outputDir))).toBe(0);
   expect((await overlayState(client)).display).toBe('block');
 });
 
@@ -200,7 +200,7 @@ test('agent-session overlay host controls do not expose the control token to mon
     },
   });
   expect(JSON.parse(parseResponse(stolenTokensResponse, test.info().outputPath()).result!)).toEqual([]);
-  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect(countWarmOverlayPixels(newestPng(outputDir))).toBe(0);
   expect((await overlayState(client)).display).toBe('block');
 });
 
@@ -213,7 +213,7 @@ test('browser_take_screenshot first operation on a fresh tab does not capture th
     result: expect.stringMatching(/\[Screenshot of viewport\]\(.*page-[^:]+.png\)/),
   });
 
-  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect(countWarmOverlayPixels(newestPng(outputDir))).toBe(0);
   expect((await overlayState(client)).display).toBe('block');
 });
 
@@ -233,7 +233,7 @@ test('browser_take_ocr_friendly_screenshot hides the agent-session overlay durin
     arguments: { tileHeight: 2000 },
   });
 
-  expect(countOrangePixels(newestPng(outputDir))).toBe(0);
+  expect(countWarmOverlayPixels(newestPng(outputDir))).toBe(0);
   expect((await overlayState(client)).display).toBe('block');
 });
 
