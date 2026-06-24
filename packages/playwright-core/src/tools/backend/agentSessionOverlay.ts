@@ -64,13 +64,21 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
     return;
   }
 
-  const existingApi = window[GLOBAL_NAME];
-  if (existingApi && typeof existingApi === 'object') {
-    try {
-      if (typeof existingApi.ensure === 'function')
-        existingApi.ensure();
-    } catch (_) {}
-    return;
+  const existingDescriptor = (() => {
+    try { return Object.getOwnPropertyDescriptor(window, GLOBAL_NAME); } catch (_) { return undefined; }
+  })();
+  if (existingDescriptor && existingDescriptor.configurable === false) {
+    const existingApi = window[GLOBAL_NAME];
+    const existingHost = (() => {
+      try { return document.querySelector(HOST_TAG); } catch (_) { return null; }
+    })();
+    if (existingHost) {
+      try {
+        if (existingApi && typeof existingApi === 'object' && typeof existingApi.ensure === 'function')
+          existingApi.ensure();
+      } catch (_) {}
+      return;
+    }
   }
 
   let host;
