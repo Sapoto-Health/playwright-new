@@ -149,6 +149,9 @@ Frame:
         timeout: float
         trial: boolean?
         steps: int?
+        returnResolvedPoint: boolean?
+      returns:
+        resolvedPoint: Point?
       flags:
         slowMo: true
         snapshot: true

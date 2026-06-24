@@ -1336,8 +1336,11 @@ scheme.FrameClickParams = tObject({
   timeout: tFloat,
   trial: tOptional(tBoolean),
   steps: tOptional(tInt),
+  returnResolvedPoint: tOptional(tBoolean),
 });
-scheme.FrameClickResult = tOptional(tObject({}));
+scheme.FrameClickResult = tObject({
+  resolvedPoint: tOptional(tType('Point')),
+});
 scheme.FrameContentParams = tOptional(tObject({}));
 scheme.FrameContentResult = tObject({
   value: tString,

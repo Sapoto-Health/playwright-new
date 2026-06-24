@@ -140,8 +140,9 @@ export class FrameDispatcher extends Dispatcher<Frame, channels.FrameChannel, Br
     return await this._frame.ariaSnapshot(progress, params);
   }
 
-  async click(params: channels.FrameClickParams, progress: Progress): Promise<void> {
-    return await this._frame.click(progress, params.selector, params);
+  async click(params: channels.FrameClickParams, progress: Progress): Promise<channels.FrameClickResult> {
+    const result = await this._frame.click(progress, params.selector, params);
+    return result || {};
   }
 
   async dblclick(params: channels.FrameDblclickParams, progress: Progress): Promise<void> {

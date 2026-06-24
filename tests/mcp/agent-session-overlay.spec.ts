@@ -70,6 +70,43 @@ function countOrangePixelsInRect(png: PNG, minX: number, minY: number, maxX: num
   return orange;
 }
 
+function countOrangeComponentsInRect(png: PNG, minX: number, minY: number, maxX: number, maxY: number): number {
+  const width = Math.max(0, maxX - minX);
+  const height = Math.max(0, maxY - minY);
+  const seen = new Uint8Array(width * height);
+  const isOrange = (x: number, y: number) => {
+    const idx = (png.width * y + x) * 4;
+    const r = png.data[idx];
+    const g = png.data[idx + 1];
+    const b = png.data[idx + 2];
+    return r > 200 && g > 60 && g < 180 && b < 90;
+  };
+  let components = 0;
+  for (let y = minY; y < maxY; y++) {
+    for (let x = minX; x < maxX; x++) {
+      const start = (y - minY) * width + (x - minX);
+      if (seen[start] || !isOrange(x, y))
+        continue;
+      components++;
+      const queue = [[x, y]];
+      seen[start] = 1;
+      for (let i = 0; i < queue.length; i++) {
+        const [cx, cy] = queue[i];
+        for (const [nx, ny] of [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]]) {
+          if (nx < minX || nx >= maxX || ny < minY || ny >= maxY)
+            continue;
+          const offset = (ny - minY) * width + (nx - minX);
+          if (seen[offset] || !isOrange(nx, ny))
+            continue;
+          seen[offset] = 1;
+          queue.push([nx, ny]);
+        }
+      }
+    }
+  }
+  return components;
+}
+
 test('agent-session overlay is visible to the live page but hidden from browser_snapshot', async ({ startClient, server }) => {
   const { client } = await startClient();
   await client.callTool({
@@ -313,4 +350,120 @@ test('agent-run overlay reinstall keeps one host and one idle cursor visual', as
   const png = PNG.sync.read(await page.screenshot());
   expect(countOrangePixelsInRect(png, 190, 140, 214, 164)).toBeGreaterThan(20);
   expect(countOrangePixelsInRect(png, 180, 130, 224, 174)).toBeLessThan(700);
+});
+
+test('agent-run overlay animates locator clicks before action with one click effect', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Click</title>
+    <body style="margin:0;background:#050505;min-height:400px">
+      <button
+        style="position:fixed;left:100px;top:220px;width:500px;height:60px"
+        onclick="window.clickedAt = performance.now(); window.clickedPoint = [event.clientX, event.clientY]"
+      >Submit</button>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.goto(server.PREFIX);
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay'] });
+  await client.callTool({ name: 'browser_snapshot' });
+  await page.evaluate(() => (window as any).clickStartedAt = performance.now());
+
+  await client.callTool({
+    name: 'browser_click',
+    arguments: { element: 'Submit button', target: 'e2' },
+  });
+
+  const clickElapsed = await page.evaluate(() => (window as any).clickedAt - (window as any).clickStartedAt);
+  expect(clickElapsed).toBeGreaterThanOrEqual(120);
+  expect(await page.evaluate(() => (window as any).clickedPoint)).toEqual([300, 250]);
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  expect(await page.evaluate(() => ({
+    actionCursorCount: document.querySelectorAll('x-pw-action-cursor').length,
+    actionPointCount: document.querySelectorAll('x-pw-action-point').length,
+  }))).toEqual({ actionCursorCount: 0, actionPointCount: 0 });
+  const png = PNG.sync.read(await page.screenshot());
+  expect(countOrangePixelsInRect(png, 240, 190, 264, 214)).toBeLessThan(20);
+  expect(countOrangePixelsInRect(png, 280, 230, 320, 270)).toBeGreaterThan(20);
+  expect(countOrangePixelsInRect(png, 340, 230, 360, 270)).toBeLessThan(20);
+  expect(countOrangeComponentsInRect(png, 260, 220, 380, 290)).toBe(1);
+});
+
+test('agent-run overlay locator click point probing does not leave input intercepted', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Probe Cleanup</title>
+    <body style="margin:0;background:#050505;min-height:400px">
+      <button
+        style="position:fixed;left:100px;top:220px;width:500px;height:60px"
+        onclick="window.clickedPoint = [event.clientX, event.clientY]"
+      >Submit</button>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.goto(server.PREFIX);
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay'] });
+  await client.callTool({ name: 'browser_snapshot' });
+
+  const locator = page.locator('button') as ReturnType<typeof page.locator> & {
+    _resolveClickPoint?: (options?: { timeout?: number }) => Promise<{ x: number, y: number } | undefined>;
+  };
+  const point = await locator._resolveClickPoint?.({ timeout: 5000 });
+  expect(point).toEqual({ x: 300, y: 250 });
+
+  await page.mouse.click(300, 250);
+
+  expect(await page.evaluate(() => (window as any).clickedPoint)).toEqual([300, 250]);
+});
+
+test('agent-run overlay animates coordinate clicks before action with one click effect', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Coordinate Click</title>
+    <body style="margin:0;background:#050505;min-height:400px">
+      <button style="position:fixed;left:80px;top:120px;width:80px;height:60px">Submit</button>
+      <script>
+        document.addEventListener("click", event => {
+          window.clickedAt = performance.now();
+          window.clickedPoint = [event.clientX, event.clientY];
+        }, true);
+      </script>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: { url: server.PREFIX },
+  });
+
+  const page = browserContext.pages().find(page => page.url().startsWith(server.PREFIX))!;
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.evaluate(() => (window as any).clickStartedAt = performance.now());
+
+  expect(await client.callTool({
+    name: 'browser_mouse_click_xy',
+    arguments: { x: 120, y: 150 },
+  })).toHaveResponse({
+    code: expect.stringContaining('await page.mouse.click(120, 150);'),
+  });
+
+  const clickElapsed = await page.evaluate(() => (window as any).clickedAt - (window as any).clickStartedAt);
+  expect(clickElapsed).toBeGreaterThanOrEqual(120);
+  expect(await page.evaluate(() => (window as any).clickedPoint)).toEqual([120, 150]);
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  expect(await page.evaluate(() => ({
+    actionCursorCount: document.querySelectorAll('x-pw-action-cursor').length,
+    actionPointCount: document.querySelectorAll('x-pw-action-point').length,
+  }))).toEqual({ actionCursorCount: 0, actionPointCount: 0 });
+  const png = PNG.sync.read(await page.screenshot());
+  expect(countOrangePixelsInRect(png, 240, 190, 264, 214)).toBeLessThan(20);
+  expect(countOrangePixelsInRect(png, 100, 130, 140, 170)).toBeGreaterThan(20);
+  expect(countOrangeComponentsInRect(png, 90, 120, 150, 180)).toBe(2);
 });

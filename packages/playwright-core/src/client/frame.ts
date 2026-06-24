@@ -32,7 +32,7 @@ import { TimeoutSettings } from './timeoutSettings';
 
 import type { LocatorOptions } from './locator';
 import type { Page } from './page';
-import type { DropPayload, FilePayload, LifecycleEvent, SelectOption, SelectOptionOptions, StrictOptions, TimeoutOptions, WaitForFunctionOptions } from './types';
+import type { DropPayload, FilePayload, LifecycleEvent, Point, SelectOption, SelectOptionOptions, StrictOptions, TimeoutOptions, WaitForFunctionOptions } from './types';
 import type * as structs from '../../types/structs';
 import type * as api from '../../types/types';
 import type { ByRoleOptions } from '@isomorphic/locatorUtils';
@@ -298,7 +298,12 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
   }
 
   async click(selector: string, options: channels.FrameClickOptions & TimeoutOptions = {}) {
-    return await this._channel.click({ selector, ...options, timeout: this._timeout(options) });
+    await this._channel.click({ selector, ...options, timeout: this._timeout(options) });
+  }
+
+  async _resolveClickPoint(selector: string, options: channels.FrameClickOptions & TimeoutOptions = {}): Promise<Point | undefined> {
+    const result = await this._channel.click({ selector, ...options, timeout: this._timeout(options), trial: true, returnResolvedPoint: true });
+    return result.resolvedPoint;
   }
 
   async dblclick(selector: string, options: channels.FrameDblclickOptions & TimeoutOptions = {}) {

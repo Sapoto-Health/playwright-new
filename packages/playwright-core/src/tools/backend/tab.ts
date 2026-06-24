@@ -268,6 +268,8 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async pulseAgentSessionClick(x: number, y: number) {
+    if (this.context.config.agentRunOverlay)
+      return;
     if (!this._isAgentSessionOverlayCursorVisible())
       return;
     await this._evaluateAgentSessionOverlayCursorHelper('pulseClick', x, y);
@@ -283,6 +285,8 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async pulseAgentSessionClickOnLocator(locator: playwright.Locator) {
+    if (this.context.config.agentRunOverlay)
+      return;
     if (!this._isAgentSessionOverlayCursorVisible())
       return;
     const point = await this._agentSessionLocatorCenter(locator);
@@ -291,8 +295,59 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     await this.pulseAgentSessionClick(point.x, point.y);
   }
 
+  async animateAgentRunOverlayClick(x: number, y: number): Promise<boolean> {
+    if (!this.context.config.agentRunOverlay || !this._isAgentSessionOverlayCursorVisible())
+      return false;
+    await this._evaluateAgentSessionOverlayCursorHelper('pulseClick', x, y);
+    await this._waitForAgentRunOverlayPointerAnimation();
+    return true;
+  }
+
+  async animateAgentRunOverlayClickOnLocator(locator: playwright.Locator): Promise<boolean> {
+    if (!this.context.config.agentRunOverlay || !this._isAgentSessionOverlayCursorVisible())
+      return false;
+    const point = await this._agentRunOverlayResolvedClickPoint(locator);
+    if (!point)
+      return false;
+    return await this.animateAgentRunOverlayClick(point.x, point.y);
+  }
+
   private _isAgentSessionOverlayCursorVisible(): boolean {
     return !this.context.config.browser?.contextOptions?.actionCursor;
+  }
+
+  private async _waitForAgentRunOverlayPointerAnimation() {
+    if (!this.context.config.agentRunOverlay)
+      return;
+    const reducedMotion = await this.page.evaluate(() => {
+      try {
+        return !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      } catch {
+        return false;
+      }
+    }).catch(e => {
+      debug('pw:tools:error')(e);
+      return false;
+    });
+    if (reducedMotion)
+      return;
+    await this.page.waitForTimeout(180).catch(e => debug('pw:tools:error')(e));
+  }
+
+  private async _agentRunOverlayResolvedClickPoint(locator: playwright.Locator): Promise<{ x: number, y: number } | undefined> {
+    try {
+      await this._initializedPromise;
+      const timeout = this.context.config.timeouts?.action;
+      const resolver = (locator as playwright.Locator & {
+        _resolveClickPoint?: (options?: { timeout?: number }) => Promise<{ x: number, y: number } | undefined>;
+      })._resolveClickPoint;
+      if (!resolver)
+        return undefined;
+      return await resolver.call(locator, { timeout });
+    } catch (e) {
+      debug('pw:tools:error')(e);
+      return undefined;
+    }
   }
 
   private async _evaluateAgentSessionOverlayHelper(method: 'hide' | 'show' | 'remove') {

@@ -23,7 +23,7 @@ import { ElementHandle } from './elementHandle';
 import { DisposableStub } from './disposable';
 
 import type { ExpectResult, Frame } from './frame';
-import type { DropPayload, FilePayload, FrameExpectParams, Rect, SelectOption, SelectOptionOptions, TimeoutOptions } from './types';
+import type { DropPayload, FilePayload, FrameExpectParams, Point, Rect, SelectOption, SelectOptionOptions, TimeoutOptions } from './types';
 import type * as structs from '../../types/structs';
 import type * as api from '../../types/types';
 import type { ByRoleOptions } from '@isomorphic/locatorUtils';
@@ -109,6 +109,10 @@ export class Locator implements api.Locator {
 
   async click(options: channels.ElementHandleClickOptions & TimeoutOptions = {}): Promise<void> {
     return await this._frame.click(this._selector, { strict: true, ...options });
+  }
+
+  async _resolveClickPoint(options: channels.ElementHandleClickOptions & TimeoutOptions = {}): Promise<Point | undefined> {
+    return await this._frame._resolveClickPoint(this._selector, { strict: true, ...options });
   }
 
   async dblclick(options: channels.ElementHandleDblclickOptions & TimeoutOptions = {}): Promise<void> {

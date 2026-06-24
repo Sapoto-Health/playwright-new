@@ -321,6 +321,9 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
       pulse.style.setProperty('transform', transform + ' scale(0.7)', 'important');
       pulseLayer.appendChild(pulse);
       window.setTimeout(() => {
+        try { cursor && cursor.classList.add('idle'); } catch (_) {}
+      }, 180);
+      window.setTimeout(() => {
         try { pulse.remove(); } catch (_) {}
       }, 700);
       return true;
