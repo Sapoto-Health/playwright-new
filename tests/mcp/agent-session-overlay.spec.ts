@@ -314,3 +314,79 @@ test('agent-run overlay reinstall keeps one host and one idle cursor visual', as
   expect(countOrangePixelsInRect(png, 190, 140, 214, 164)).toBeGreaterThan(20);
   expect(countOrangePixelsInRect(png, 180, 130, 224, 174)).toBeLessThan(700);
 });
+
+test('agent-run overlay animates locator clicks before action with one click effect', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Click</title>
+    <body style="margin:0;background:#050505;min-height:400px">
+      <button
+        style="position:fixed;left:320px;top:220px;width:80px;height:60px"
+        onclick="window.clickedAt = performance.now()"
+      >Submit</button>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.goto(server.PREFIX);
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay'] });
+  await client.callTool({ name: 'browser_snapshot' });
+  await page.evaluate(() => (window as any).clickStartedAt = performance.now());
+
+  await client.callTool({
+    name: 'browser_click',
+    arguments: { element: 'Submit button', target: 'e2' },
+  });
+
+  const clickElapsed = await page.evaluate(() => (window as any).clickedAt - (window as any).clickStartedAt);
+  expect(clickElapsed).toBeGreaterThanOrEqual(120);
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  const png = PNG.sync.read(await page.screenshot());
+  expect(countOrangePixelsInRect(png, 240, 190, 264, 214)).toBeLessThan(20);
+  expect(countOrangePixelsInRect(png, 340, 240, 380, 280)).toBeGreaterThan(20);
+  expect(countOrangePixelsInRect(png, 330, 230, 390, 290)).toBeLessThan(700);
+});
+
+test('agent-run overlay animates coordinate clicks before action with one click effect', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Coordinate Click</title>
+    <body style="margin:0;background:#050505;min-height:400px">
+      <button style="position:fixed;left:80px;top:120px;width:80px;height:60px">Submit</button>
+      <script>
+        document.addEventListener("click", event => {
+          window.clickedAt = performance.now();
+          window.clickedPoint = [event.clientX, event.clientY];
+        }, true);
+      </script>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
+  await client.callTool({
+    name: 'browser_navigate',
+    arguments: { url: server.PREFIX },
+  });
+
+  const page = browserContext.pages().find(page => page.url().startsWith(server.PREFIX))!;
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.evaluate(() => (window as any).clickStartedAt = performance.now());
+
+  expect(await client.callTool({
+    name: 'browser_mouse_click_xy',
+    arguments: { x: 120, y: 150 },
+  })).toHaveResponse({
+    code: expect.stringContaining('await page.mouse.click(120, 150);'),
+  });
+
+  const clickElapsed = await page.evaluate(() => (window as any).clickedAt - (window as any).clickStartedAt);
+  expect(clickElapsed).toBeGreaterThanOrEqual(120);
+  expect(await page.evaluate(() => (window as any).clickedPoint)).toEqual([120, 150]);
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+  const png = PNG.sync.read(await page.screenshot());
+  expect(countOrangePixelsInRect(png, 240, 190, 264, 214)).toBeLessThan(20);
+  expect(countOrangePixelsInRect(png, 100, 130, 140, 170)).toBeGreaterThan(20);
+  expect(countOrangePixelsInRect(png, 90, 120, 150, 180)).toBeLessThan(700);
+});

@@ -87,7 +87,8 @@ const click = defineTabTool({
     else
       response.addCode(`await page.${resolved}.click(${optionsArg});`);
 
-    await tab.pulseAgentSessionClickOnLocator(locator);
+    if (!await tab.animateAgentRunOverlayClickOnLocator(locator))
+      await tab.pulseAgentSessionClickOnLocator(locator);
     await tab.waitForCompletion(async () => {
       if (params.doubleClick)
         await locator.dblclick(options);

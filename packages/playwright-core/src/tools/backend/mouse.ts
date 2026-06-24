@@ -136,7 +136,8 @@ const mouseClick = defineTabTool({
     response.addCode(`// Click mouse at coordinates (${params.x}, ${params.y})`);
     response.addCode(`await page.mouse.click(${params.x}, ${params.y}${optionsArg});`);
 
-    await tab.pulseAgentSessionClick(params.x, params.y);
+    if (!await tab.animateAgentRunOverlayClick(params.x, params.y))
+      await tab.pulseAgentSessionClick(params.x, params.y);
     await tab.waitForCompletion(async () => {
       await tab.page.mouse.click(params.x, params.y, options);
     });
