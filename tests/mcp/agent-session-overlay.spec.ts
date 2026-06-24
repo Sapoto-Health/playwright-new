@@ -44,6 +44,22 @@ async function overlayState(client: any) {
   return JSON.parse(parseResponse(response, test.info().outputPath()).result!);
 }
 
+async function pageOverlayState(page: any) {
+  return await page.evaluate((hostSelector: string) => {
+    const host = document.querySelector(hostSelector);
+    return {
+      count: document.querySelectorAll(hostSelector).length,
+      display: host ? getComputedStyle(host).display : null,
+    };
+  }, HOST_SELECTOR);
+}
+
+function tabIndexForUrl(tabsText: string, urlPart: string): number {
+  const line = tabsText.split('\n').find(line => line.includes(urlPart));
+  expect(line).toBeTruthy();
+  return Number(line!.match(/^- (\d+):/)![1]);
+}
+
 function newestPng(outputDir: string): Buffer {
   const files = fs.readdirSync(outputDir).filter(file => file.endsWith('.png')).sort();
   expect(files.length).toBeGreaterThan(0);
@@ -374,6 +390,182 @@ test('agent-run overlay reinstall keeps one host and one idle cursor visual', as
   const png = PNG.sync.read(await page.screenshot());
   expect(countOrangePixelsInRect(png, 190, 140, 214, 164)).toBeGreaterThan(20);
   expect(countOrangePixelsInRect(png, 180, 130, 224, 174)).toBeLessThan(700);
+});
+
+test('agent-run overlay hides inactive controlled tabs', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/first', `
+    <title>First</title>
+    <body style="margin:0;background:#050505"></body>
+  `, 'text/html');
+  server.setContent('/second', `
+    <title>Second</title>
+    <body style="margin:0;background:#050505"></body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const firstPage = browserContext.pages()[0];
+  await firstPage.goto(server.PREFIX + '/first');
+  const secondPage = await browserContext.newPage();
+  await secondPage.goto(server.PREFIX + '/second');
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay'] });
+  const tabs = await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } });
+  const firstIndex = tabIndexForUrl(parseResponse(tabs, test.info().outputPath()).result!, '/first');
+  await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: firstIndex, activate: true } });
+
+  await expect.poll(async () => pageOverlayState(firstPage)).toEqual({ count: 1, display: 'block' });
+  await expect.poll(async () => pageOverlayState(secondPage)).toEqual({ count: 1, display: 'none' });
+});
+
+test('agent-run overlay restores a clamped cursor after reload without duplicate hosts', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/', `
+    <title>Agent Run Overlay Reload</title>
+    <body style="margin:0;background:#050505;height:1600px">
+      <script>
+        document.addEventListener("wheel", event => {
+          window.wheelPoint = [event.clientX, event.clientY];
+        }, { passive: true });
+      </script>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.goto(server.PREFIX);
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
+  const tabs = await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } });
+  const pageIndex = tabIndexForUrl(parseResponse(tabs, test.info().outputPath()).result!, server.PREFIX);
+  await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: pageIndex, activate: true } });
+  expect(await client.callTool({
+    name: 'browser_mouse_move_xy',
+    arguments: { x: 480, y: 380 },
+  })).toHaveResponse({
+    code: expect.stringContaining('await page.mouse.move(480, 380);'),
+  });
+
+  await page.setViewportSize({ width: 320, height: 220 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.locator(HOST_SELECTOR).count()).toBe(1);
+
+  expect(await client.callTool({
+    name: 'browser_mouse_wheel',
+    arguments: { deltaX: 0, deltaY: 120 },
+  })).toHaveResponse({
+    code: expect.stringContaining('await page.mouse.wheel(0, 120);'),
+  });
+
+  await expect.poll(() => page.evaluate(() => (window as any).wheelPoint)).toEqual([300, 200]);
+  expect(await page.locator(HOST_SELECTOR).count()).toBe(1);
+});
+
+test('agent-run overlay restores cursor visuals after top-level navigation without duplicate hosts', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/first-navigation', `
+    <title>First Navigation</title>
+    <body style="margin:0;background:#050505;height:800px"></body>
+  `, 'text/html');
+  server.setContent('/second-navigation', `
+    <title>Second Navigation</title>
+    <body style="margin:0;background:#050505;height:800px"></body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.setViewportSize({ width: 500, height: 400 });
+  await page.goto(server.PREFIX + '/first-navigation');
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
+  await client.callTool({ name: 'browser_snapshot' });
+  await client.callTool({ name: 'browser_mouse_move_xy', arguments: { x: 120, y: 150 } });
+  await client.callTool({ name: 'browser_navigate', arguments: { url: server.PREFIX + '/second-navigation' } });
+  await expect.poll(() => page.locator(HOST_SELECTOR).count()).toBe(1);
+
+  await expect.poll(async () => countOrangePixelsInRect(PNG.sync.read(await page.screenshot()), 100, 130, 140, 170)).toBeGreaterThan(20);
+  const png = PNG.sync.read(await page.screenshot());
+  expect(countOrangePixelsInRect(png, 230, 180, 270, 220)).toBeLessThan(20);
+});
+
+test('agent-run overlay restores each tab cursor point when returning to a tab', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/first-tab', `
+    <title>First Tab</title>
+    <body style="margin:0;background:#050505;height:1600px">
+      <script>
+        document.addEventListener("wheel", event => {
+          window.wheelPoint = [event.clientX, event.clientY];
+        }, { passive: true });
+      </script>
+    </body>
+  `, 'text/html');
+  server.setContent('/second-tab', `
+    <title>Second Tab</title>
+    <body style="margin:0;background:#050505;height:1600px">
+      <script>
+        document.addEventListener("wheel", event => {
+          window.wheelPoint = [event.clientX, event.clientY];
+        }, { passive: true });
+      </script>
+    </body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const firstPage = browserContext.pages()[0];
+  await firstPage.setViewportSize({ width: 500, height: 400 });
+  await firstPage.goto(server.PREFIX + '/first-tab');
+  const secondPage = await browserContext.newPage();
+  await secondPage.setViewportSize({ width: 500, height: 400 });
+  await secondPage.goto(server.PREFIX + '/second-tab');
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay', '--caps=vision'] });
+  const tabs = await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } });
+  const tabsText = parseResponse(tabs, test.info().outputPath()).result!;
+  const firstIndex = tabIndexForUrl(tabsText, '/first-tab');
+  const secondIndex = tabIndexForUrl(tabsText, '/second-tab');
+
+  await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: firstIndex, activate: true } });
+  expect(await client.callTool({ name: 'browser_mouse_move_xy', arguments: { x: 120, y: 150 } })).toHaveResponse({
+    code: expect.stringContaining('await page.mouse.move(120, 150);'),
+  });
+  await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: secondIndex, activate: true } });
+  expect(await client.callTool({ name: 'browser_mouse_move_xy', arguments: { x: 360, y: 300 } })).toHaveResponse({
+    code: expect.stringContaining('await page.mouse.move(360, 300);'),
+  });
+  await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: firstIndex, activate: true } });
+  expect(await client.callTool({ name: 'browser_mouse_wheel', arguments: { deltaX: 0, deltaY: 120 } })).toHaveResponse({
+    code: expect.stringContaining('await page.mouse.wheel(0, 120);'),
+  });
+
+  await expect.poll(() => firstPage.evaluate(() => (window as any).wheelPoint)).toEqual([120, 150]);
+  expect(await secondPage.evaluate(() => (window as any).wheelPoint)).toBeUndefined();
+  await expect.poll(async () => pageOverlayState(firstPage)).toEqual({ count: 1, display: 'block' });
+  await expect.poll(async () => pageOverlayState(secondPage)).toEqual({ count: 1, display: 'none' });
+});
+
+test('agent-run overlay run teardown disposes overlays on every controlled tab', async ({ cdpServer, startClient, server }) => {
+  server.setContent('/first-dispose', `
+    <title>First Dispose</title>
+    <body style="margin:0;background:#050505"></body>
+  `, 'text/html');
+  server.setContent('/second-dispose', `
+    <title>Second Dispose</title>
+    <body style="margin:0;background:#050505"></body>
+  `, 'text/html');
+
+  const browserContext = await cdpServer.start();
+  const firstPage = browserContext.pages()[0];
+  await firstPage.goto(server.PREFIX + '/first-dispose');
+  const secondPage = await browserContext.newPage();
+  await secondPage.goto(server.PREFIX + '/second-dispose');
+
+  const { client } = await startClient({ args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay'] });
+  await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } });
+  await expect.poll(() => firstPage.locator(HOST_SELECTOR).count()).toBe(1);
+  await expect.poll(() => secondPage.locator(HOST_SELECTOR).count()).toBe(1);
+
+  await client.close();
+
+  await expect.poll(() => firstPage.locator(HOST_SELECTOR).count()).toBe(0);
+  await expect.poll(() => secondPage.locator(HOST_SELECTOR).count()).toBe(0);
 });
 
 test('agent-run overlay animates locator clicks before action with one click effect', async ({ cdpServer, startClient, server }) => {

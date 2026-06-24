@@ -226,16 +226,19 @@ export class Context {
     const browserContext = await this.ensureBrowserContext();
     const page = await browserContext.newPage();
     this._currentTab = this._tabs.find(t => t.page === page)!;
+    await this.syncAgentRunOverlayVisibility();
     return this._currentTab;
   }
 
   async selectTab(index: number, options?: { activate?: boolean }) {
+    await this.ensureBrowserContext();
     const tab = this._tabs[index];
     if (!tab)
       throw new Error(`Tab ${index} not found`);
     if (options?.activate)
       await tab.page.bringToFront();
     this._currentTab = tab;
+    await this.syncAgentRunOverlayVisibility();
     return tab;
   }
 
@@ -250,6 +253,7 @@ export class Context {
       await this.newTab();
     if (crashed)
       this._currentTab!.logErrorMessage('Page crashed and was reset to about:blank.');
+    await this.syncAgentRunOverlayVisibility();
     return this._currentTab!;
   }
 
@@ -345,6 +349,7 @@ export class Context {
     this._tabs.push(tab);
     if (!this._currentTab)
       this._currentTab = tab;
+    this.syncAgentRunOverlayVisibility().catch(e => debug('pw:tools:error')(e));
     this._showActionCursor(page);
     this._startPageVideo(page).catch(() => {});
   }
@@ -365,6 +370,13 @@ export class Context {
 
     if (this._currentTab === tab)
       this._currentTab = this._tabs[Math.min(index, this._tabs.length - 1)];
+    this.syncAgentRunOverlayVisibility().catch(e => debug('pw:tools:error')(e));
+  }
+
+  async syncAgentRunOverlayVisibility() {
+    if (!this.config.agentRunOverlay)
+      return;
+    await Promise.all(this._tabs.map(tab => tab.setAgentRunOverlayActive(tab === this._currentTab)));
   }
 
   routes(): RouteEntry[] {
