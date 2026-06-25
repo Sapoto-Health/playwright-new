@@ -456,6 +456,10 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     if (this._agentRunOverlayCaptureHidden)
       return false;
     await this.setAgentSessionOverlayVisible(true);
+    if (this._agentRunOverlayCaptureHidden || !this.isCurrentTab()) {
+      await this.setAgentSessionOverlayVisible(false).catch(e => debug('pw:tools:error')(e));
+      return false;
+    }
     const after = await this._agentRunOverlayHealth();
     if (this._isAgentRunOverlayHealthy(after)) {
       this._logAgentRunOverlayDiagnostic('repair', reason, after);

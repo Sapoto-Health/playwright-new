@@ -110,6 +110,7 @@ it('agent-session overlay unregisters future injection before removing the curre
 
 it('agent-run overlay restore probes, reinstalls, and logs watchdog repairs', () => {
   const src = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/tab.ts'), 'utf8');
+  const contextSrc = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/context.ts'), 'utf8');
 
   expect(src).toContain("type AgentRunOverlayRestoreReason = 'activate' | 'navigation' | 'watchdog' | 'capture'");
   expect(src).toContain('private _agentRunOverlayWatchdogTimer');
@@ -125,6 +126,9 @@ it('agent-run overlay restore probes, reinstalls, and logs watchdog repairs', ()
   expect(src).toContain('captureHidden=${this._agentRunOverlayCaptureHidden}');
   expect(src).toContain('async hideAgentSessionOverlayForCapture()');
   expect(src).toContain('this._stopAgentRunOverlayWatchdog()');
+  expect(contextSrc).toContain('if (tab === currentTab)');
+  expect(contextSrc).toContain('return tab.setAgentRunOverlayActive(true)');
+  expect(contextSrc).toContain('tab.setAgentRunOverlayActive(false).catch');
 });
 
 it('agent-run overlay watchdog stops when the tab closes', () => {
@@ -152,6 +156,10 @@ it('agent-run overlay repair does not re-show while capture hide is active', () 
       .toBeGreaterThan(ensureSrc.indexOf('await this.page.evaluate(this._agentSessionOverlayScript)'));
   expect(ensureSrc.indexOf('if (this._agentRunOverlayCaptureHidden)'))
       .toBeLessThan(ensureSrc.indexOf('await this.setAgentSessionOverlayVisible(true)'));
+  expect(ensureSrc).toContain('if (this._agentRunOverlayCaptureHidden || !this.isCurrentTab())');
+  expect(ensureSrc.indexOf('if (this._agentRunOverlayCaptureHidden || !this.isCurrentTab())'))
+      .toBeGreaterThan(ensureSrc.indexOf('await this.setAgentSessionOverlayVisible(true)'));
+  expect(ensureSrc).toContain('await this.setAgentSessionOverlayVisible(false).catch');
 });
 
 it('mcp watchdog disposes Playwright backends before process shutdown', () => {
