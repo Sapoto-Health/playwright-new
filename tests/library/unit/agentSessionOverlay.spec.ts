@@ -42,6 +42,16 @@ it('agent-session overlay can hide its cursor visuals while retaining the host o
   expect(hiddenSrc).toContain("glow.className = 'glow';");
 });
 
+it('agent-session overlay exposes a token-gated health probe for watchdog restores', () => {
+  const src = buildOverlayScript({ agentRunOverlay: true });
+
+  expect(src).toContain('health: token => {');
+  expect(src).toContain('if (!isAuthorized(token))');
+  expect(src).toContain('owned: true');
+  expect(src).toContain('hostCount: document.querySelectorAll(HOST_TAG).length');
+  expect(src).toContain("visible: host ? getComputedStyle(host).display !== 'none' : false");
+});
+
 it('agent-session overlay host dispatch avoids page-realm reflective built-ins on the control-token path', () => {
   const src = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/tab.ts'), 'utf8');
   const helperStart = src.indexOf('private async _evaluateAgentSessionOverlayHelper');
@@ -87,6 +97,47 @@ it('agent-session overlay unregisters future injection before removing the curre
   expect(disposeSrc).toContain('await this._disposeAgentSessionOverlayInitScript()');
   expect(disposeSrc.indexOf('await this._disposeAgentSessionOverlayInitScript()'))
       .toBeLessThan(disposeSrc.indexOf('await this.removeAgentSessionOverlay()'));
+});
+
+it('agent-run overlay restore probes, reinstalls, and logs watchdog repairs', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/tab.ts'), 'utf8');
+
+  expect(src).toContain("type AgentRunOverlayRestoreReason = 'activate' | 'navigation' | 'watchdog' | 'capture'");
+  expect(src).toContain('private _agentRunOverlayWatchdogTimer');
+  expect(src).toContain('private async _ensureAgentRunOverlayInstalled');
+  expect(src).toContain('private async _agentRunOverlayHealth');
+  expect(src).toContain('await this.page.evaluate(this._agentSessionOverlayScript)');
+  expect(src).toContain("this._logAgentRunOverlayDiagnostic('repair'");
+  expect(src).toContain("this._logAgentRunOverlayDiagnostic('unhealthy'");
+  expect(src).toContain('async hideAgentSessionOverlayForCapture()');
+  expect(src).toContain('this._stopAgentRunOverlayWatchdog()');
+});
+
+it('agent-run overlay watchdog stops when the tab closes', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/tab.ts'), 'utf8');
+  const closeStart = src.indexOf('private _onClose()');
+  const closeEnd = src.indexOf('private _clearCollectedArtifacts', closeStart);
+  const closeSrc = src.slice(closeStart, closeEnd);
+
+  expect(closeSrc).toContain('this._stopAgentRunOverlayWatchdog()');
+});
+
+it('agent-run overlay repair does not re-show while capture hide is active', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../../../packages/playwright-core/src/tools/backend/tab.ts'), 'utf8');
+  const hideStart = src.indexOf('async hideAgentSessionOverlayForCapture()');
+  const hideEnd = src.indexOf('async showAgentSessionOverlayAfterCapture()', hideStart);
+  const hideSrc = src.slice(hideStart, hideEnd);
+  const ensureStart = src.indexOf('private async _ensureAgentRunOverlayInstalled');
+  const ensureEnd = src.indexOf('private _isAgentRunOverlayHealthy', ensureStart);
+  const ensureSrc = src.slice(ensureStart, ensureEnd);
+
+  expect(src).toContain('private _agentRunOverlayCaptureHidden');
+  expect(hideSrc).toContain('this._agentRunOverlayCaptureHidden = true');
+  expect(ensureSrc).toContain('if (this._agentRunOverlayCaptureHidden)');
+  expect(ensureSrc.indexOf('if (this._agentRunOverlayCaptureHidden)'))
+      .toBeGreaterThan(ensureSrc.indexOf('await this.page.evaluate(this._agentSessionOverlayScript)'));
+  expect(ensureSrc.indexOf('if (this._agentRunOverlayCaptureHidden)'))
+      .toBeLessThan(ensureSrc.indexOf('await this.setAgentSessionOverlayVisible(true)'));
 });
 
 it('mcp watchdog disposes Playwright backends before process shutdown', () => {

@@ -28,7 +28,12 @@ import { LogFile } from './logFile';
 import { ModalState } from './tool';
 import { handleDialog } from './dialogs';
 import { uploadFile } from './files';
-import { AGENT_SESSION_OVERLAY_GLOBAL, isAgentSessionOverlayBoundInitScriptContent } from './agentSessionOverlay';
+import {
+  AGENT_SESSION_OVERLAY_GLOBAL,
+  AGENT_SESSION_OVERLAY_HOST,
+  AGENT_SESSION_OVERLAY_OWNED_MARKER,
+  isAgentSessionOverlayBoundInitScriptContent,
+} from './agentSessionOverlay';
 
 import type { Disposable } from '@isomorphic/disposable';
 import type { Context, ContextConfig } from './context';
@@ -80,6 +85,18 @@ type RequestLogEntry = {
 
 type EventEntry = ConsoleLogEntry | DownloadStartLogEntry | DownloadFinishLogEntry | RequestLogEntry;
 
+type AgentRunOverlayRestoreReason = 'activate' | 'navigation' | 'watchdog' | 'capture';
+
+type AgentRunOverlayHealth = {
+  authorized?: boolean;
+  owned?: boolean;
+  hostCount?: number;
+  visible?: boolean;
+  error?: string;
+};
+
+const AGENT_RUN_OVERLAY_WATCHDOG_INTERVAL_MS = 1500;
+
 
 export type TabHeader = {
   title: string;
@@ -113,6 +130,9 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private _agentSessionOverlayScript: string | undefined;
   private _agentSessionOverlayControlToken: string | undefined;
   private _agentSessionOverlayCursorPoint: { x: number, y: number } | undefined;
+  private _agentRunOverlayWatchdogTimer: ReturnType<typeof setInterval> | undefined;
+  private _lastAgentRunOverlayDiagnosticSignature: string | undefined;
+  private _agentRunOverlayCaptureHidden = false;
   readonly actionTimeoutOptions: { timeout?: number; };
   readonly navigationTimeoutOptions: { timeout?: number; };
   readonly expectTimeoutOptions: { timeout?: number; };
@@ -135,7 +155,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       eventsHelper.addEventListener(p, 'crash', () => { this.crashed = true; }),
       eventsHelper.addEventListener(p, 'framenavigated', frame => {
         if (frame === p.mainFrame())
-          this.restoreAgentRunOverlayState().catch(e => debug('pw:tools:error')(e));
+          this.restoreAgentRunOverlayState('navigation').catch(e => debug('pw:tools:error')(e));
       }),
       eventsHelper.addEventListener(p, 'filechooser', chooser => {
         this.setModalState({
@@ -169,6 +189,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async dispose() {
+    this._stopAgentRunOverlayWatchdog();
     await this._disposeAgentSessionOverlayInitScript();
     await this.removeAgentSessionOverlay();
     await disposeAll(this._disposables);
@@ -245,10 +266,19 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   async hideAgentSessionOverlayForCapture() {
+    if (this.context.config.agentRunOverlay) {
+      this._agentRunOverlayCaptureHidden = true;
+      this._stopAgentRunOverlayWatchdog();
+    }
     await this._evaluateAgentSessionOverlayHelper('hide');
   }
 
   async showAgentSessionOverlayAfterCapture() {
+    if (this.context.config.agentRunOverlay) {
+      this._agentRunOverlayCaptureHidden = false;
+      await this.restoreAgentRunOverlayState('capture');
+      return;
+    }
     await this._evaluateAgentSessionOverlayHelper('show');
   }
 
@@ -262,20 +292,30 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       return;
     }
     if (!active) {
+      this._agentRunOverlayCaptureHidden = false;
+      this._stopAgentRunOverlayWatchdog();
       await this.setAgentSessionOverlayVisible(false);
       return;
     }
-    await this.restoreAgentRunOverlayState();
+    this._startAgentRunOverlayWatchdog();
+    await this.restoreAgentRunOverlayState('activate');
   }
 
-  async restoreAgentRunOverlayState() {
+  async restoreAgentRunOverlayState(reason: AgentRunOverlayRestoreReason = 'activate') {
     if (!this.context.config.agentRunOverlay)
       return;
     if (!this.isCurrentTab()) {
+      this._stopAgentRunOverlayWatchdog();
       await this.setAgentSessionOverlayVisible(false);
       return;
     }
-    await this.setAgentSessionOverlayVisible(true);
+    if (this._agentRunOverlayCaptureHidden) {
+      this._stopAgentRunOverlayWatchdog();
+      await this.setAgentSessionOverlayVisible(false);
+      return;
+    }
+    this._startAgentRunOverlayWatchdog();
+    await this._ensureAgentRunOverlayInstalled(reason);
     if (!this._isAgentSessionOverlayCursorVisible())
       return;
     const previousPoint = this._agentSessionOverlayCursorPoint;
@@ -370,6 +410,110 @@ export class Tab extends EventEmitter<TabEventsInterface> {
 
   private _isAgentSessionOverlayCursorVisible(): boolean {
     return !this.context.config.browser?.contextOptions?.actionCursor;
+  }
+
+  private _startAgentRunOverlayWatchdog() {
+    if (!this.context.config.agentRunOverlay || this._agentRunOverlayWatchdogTimer)
+      return;
+    this._agentRunOverlayWatchdogTimer = setInterval(() => {
+      if (!this.isCurrentTab())
+        return;
+      this._ensureAgentRunOverlayInstalled('watchdog').catch(e => debug('pw:tools:error')(e));
+    }, AGENT_RUN_OVERLAY_WATCHDOG_INTERVAL_MS);
+    (this._agentRunOverlayWatchdogTimer as { unref?: () => void }).unref?.();
+  }
+
+  private _stopAgentRunOverlayWatchdog() {
+    if (!this._agentRunOverlayWatchdogTimer)
+      return;
+    clearInterval(this._agentRunOverlayWatchdogTimer);
+    this._agentRunOverlayWatchdogTimer = undefined;
+  }
+
+  private async _ensureAgentRunOverlayInstalled(reason: AgentRunOverlayRestoreReason): Promise<boolean> {
+    if (!this._agentSessionOverlayScript || !this.context.config.agentRunOverlay || !this.isCurrentTab() || this._agentRunOverlayCaptureHidden)
+      return false;
+
+    const before = await this._agentRunOverlayHealth();
+    if (this._isAgentRunOverlayHealthy(before))
+      return false;
+
+    this._logAgentRunOverlayDiagnostic('unhealthy', reason, before);
+    try {
+      await this.page.evaluate(this._agentSessionOverlayScript);
+    } catch (e) {
+      debug('pw:tools:error')(e);
+    }
+
+    if (this._agentRunOverlayCaptureHidden)
+      return false;
+    await this.setAgentSessionOverlayVisible(true);
+    const after = await this._agentRunOverlayHealth();
+    if (this._isAgentRunOverlayHealthy(after)) {
+      this._logAgentRunOverlayDiagnostic('repair', reason, after);
+      return true;
+    }
+    this._logAgentRunOverlayDiagnostic('repair_failed', reason, after);
+    return false;
+  }
+
+  private _isAgentRunOverlayHealthy(health: AgentRunOverlayHealth): boolean {
+    return health.authorized === true &&
+      health.owned === true &&
+      health.hostCount === 1 &&
+      health.visible === true;
+  }
+
+  private async _agentRunOverlayHealth(): Promise<AgentRunOverlayHealth> {
+    try {
+      await this._initializedPromise;
+      return await this.page.evaluate(({ globalName, hostTag, ownedMarker, controlToken }) => {
+        const host = document.querySelector(hostTag);
+        const helper = (window as unknown as Record<string, {
+          [ownedMarker: string]: unknown;
+          health?: (controlToken: string | undefined) => AgentRunOverlayHealth;
+        } | undefined>)[globalName];
+        const base = {
+          hostCount: document.querySelectorAll(hostTag).length,
+          visible: host ? getComputedStyle(host).display !== 'none' : false,
+        };
+        if (!helper || typeof helper !== 'object')
+          return { ...base, authorized: false, owned: false };
+        if (helper[ownedMarker] !== true)
+          return { ...base, authorized: false, owned: false };
+        if (typeof helper.health !== 'function')
+          return { ...base, authorized: true, owned: true };
+        return helper.health(controlToken);
+      }, {
+        globalName: AGENT_SESSION_OVERLAY_GLOBAL,
+        hostTag: AGENT_SESSION_OVERLAY_HOST,
+        ownedMarker: AGENT_SESSION_OVERLAY_OWNED_MARKER,
+        controlToken: this._agentSessionOverlayControlToken,
+      });
+    } catch (e) {
+      debug('pw:tools:error')(e);
+      return {
+        authorized: false,
+        owned: false,
+        hostCount: 0,
+        visible: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }
+
+  private _logAgentRunOverlayDiagnostic(kind: 'unhealthy' | 'repair' | 'repair_failed', reason: AgentRunOverlayRestoreReason, health: AgentRunOverlayHealth) {
+    const signature = `${kind}:${reason}:${health.authorized}:${health.owned}:${health.hostCount}:${health.visible}:${health.error ?? ''}`;
+    if (kind === 'unhealthy' && this._lastAgentRunOverlayDiagnosticSignature === signature)
+      return;
+    this._lastAgentRunOverlayDiagnosticSignature = kind === 'repair' ? undefined : signature;
+    const text = `[SapotoAgentRunOverlay] ${kind} reason=${reason} authorized=${health.authorized === true} owned=${health.owned === true} hostCount=${health.hostCount ?? 'unknown'} visible=${health.visible === true}${health.error ? ` error=${health.error}` : ''}`;
+    this._handleConsoleMessage({
+      type: kind === 'repair' ? 'info' : 'warning',
+      timestamp: Date.now(),
+      text,
+      toString: () => text,
+    });
   }
 
   private async _waitForAgentRunOverlayPointerAnimation() {
@@ -616,6 +760,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   }
 
   private _onClose() {
+    this._stopAgentRunOverlayWatchdog();
     this._clearCollectedArtifacts();
     this._onPageClose(this);
   }

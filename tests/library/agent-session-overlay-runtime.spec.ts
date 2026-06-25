@@ -292,6 +292,34 @@ it('agent-session overlay cursor visuals are token gated', async ({ context, ser
   expect(await page.locator(HOST_SELECTOR).evaluate(host => getComputedStyle(host).pointerEvents)).toBe('none');
 });
 
+it('agent-session overlay health probe is token gated and reports owned host state', async ({ context, server }) => {
+  const { content, controlToken } = createAgentSessionOverlayScript({ agentRunOverlay: true });
+  await context.addInitScript({ content });
+  const page = await context.newPage();
+  await page.goto(server.EMPTY_PAGE);
+
+  expect(await page.evaluate(({ globalName, controlToken }) => {
+    const helper = (window as any)[globalName];
+    return {
+      invalid: helper.health('wrong-token'),
+      valid: helper.health(controlToken),
+    };
+  }, { globalName: AGENT_SESSION_OVERLAY_GLOBAL, controlToken })).toEqual({
+    invalid: {
+      authorized: false,
+      owned: true,
+      hostCount: 0,
+      visible: false,
+    },
+    valid: {
+      authorized: true,
+      owned: true,
+      hostCount: 1,
+      visible: true,
+    },
+  });
+});
+
 it('agent-session overlay hidden cursor mode retains active glow without cursor helper failures', async ({ context, server }) => {
   const { content, controlToken } = createAgentSessionOverlayScript({ cursor: 'hidden' });
   await context.addInitScript({ content });

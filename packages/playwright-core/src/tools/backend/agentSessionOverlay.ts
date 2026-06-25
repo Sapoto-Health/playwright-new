@@ -472,6 +472,19 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
   const api = {
     [OWNED_MARKER]: true,
     ensure: () => appendHost(),
+    health: token => {
+      if (!isAuthorized(token))
+        return { authorized: false, owned: true, hostCount: 0, visible: false };
+      const hosts = Array.from(document.querySelectorAll(HOST_TAG));
+      if (!host)
+        host = hosts[0] || null;
+      return {
+        authorized: true,
+        owned: true,
+        hostCount: document.querySelectorAll(HOST_TAG).length,
+        visible: host ? getComputedStyle(host).display !== 'none' : false,
+      };
+    },
     hide: token => {
       if (!isAuthorized(token))
         return false;
