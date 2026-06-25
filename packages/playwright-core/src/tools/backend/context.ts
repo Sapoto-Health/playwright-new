@@ -376,7 +376,13 @@ export class Context {
   async syncAgentRunOverlayVisibility() {
     if (!this.config.agentRunOverlay)
       return;
-    await Promise.all(this._tabs.map(tab => tab.setAgentRunOverlayActive(tab === this._currentTab)));
+    const currentTab = this._currentTab;
+    await Promise.all(this._tabs.map(tab => {
+      if (tab === currentTab)
+        return tab.setAgentRunOverlayActive(true);
+      tab.setAgentRunOverlayActive(false).catch(e => debug('pw:tools:error')(e));
+      return Promise.resolve();
+    }));
   }
 
   routes(): RouteEntry[] {

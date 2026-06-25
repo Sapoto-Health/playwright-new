@@ -472,6 +472,27 @@ export function buildOverlayScript(_options: AgentSessionOverlayOptions = {}, co
   const api = {
     [OWNED_MARKER]: true,
     ensure: () => appendHost(),
+    health: token => {
+      if (!isAuthorized(token))
+        return { authorized: false, owned: true, hostCount: 0, visible: false, display: 'none', zIndex: null, cursorVisible: false, cursorNode: false };
+      const hosts = Array.from(document.querySelectorAll(HOST_TAG));
+      if (!host)
+        host = hosts[0] || null;
+      const hostDisplay = host ? getComputedStyle(host).display : 'none';
+      const cursorDisplay = cursor ? getComputedStyle(cursor).display : 'none';
+      const cursorOpacity = cursor ? getComputedStyle(cursor).opacity : '0';
+      const cursorIsVisible = !!cursor && CURSOR_VISIBLE && hostDisplay !== 'none' && cursorDisplay !== 'none' && cursorOpacity !== '0';
+      return {
+        authorized: true,
+        owned: true,
+        hostCount: document.querySelectorAll(HOST_TAG).length,
+        visible: hostDisplay !== 'none',
+        display: hostDisplay,
+        zIndex: host ? getComputedStyle(host).zIndex : null,
+        cursorVisible: cursorIsVisible,
+        cursorNode: !!cursor,
+      };
+    },
     hide: token => {
       if (!isAuthorized(token))
         return false;

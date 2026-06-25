@@ -374,6 +374,36 @@ test('agent-run overlay paints one host with glow and a centered idle cursor bef
   expect(edgeOrangePixels).toBeGreaterThan(200);
 });
 
+test('agent-run overlay emits a positive heartbeat while healthy', async ({ cdpServer, startClient, server }, testInfo) => {
+  server.setContent('/heartbeat', `
+    <title>Agent Run Overlay Heartbeat</title>
+    <body style="margin:0;background:#050505"></body>
+  `, 'text/html');
+  const outputDir = testInfo.outputPath('output');
+  const browserContext = await cdpServer.start();
+  const page = browserContext.pages()[0];
+  await page.goto(server.PREFIX + '/heartbeat');
+
+  const { client } = await startClient({
+    args: [`--cdp-endpoint=${cdpServer.endpoint}`, '--agent-run-overlay'],
+    config: { outputDir: 'output' },
+  });
+  const tabs = await client.callTool({ name: 'browser_tabs', arguments: { action: 'list' } });
+  const pageIndex = tabIndexForUrl(parseResponse(tabs, test.info().outputPath()).result!, '/heartbeat');
+  await client.callTool({ name: 'browser_tabs', arguments: { action: 'select', index: pageIndex, activate: true } });
+  await client.callTool({ name: 'browser_snapshot' });
+  await page.waitForTimeout(2000);
+  await client.callTool({ name: 'browser_snapshot' });
+
+  const logFiles = fs.readdirSync(outputDir).filter(file => file.startsWith('console-') && file.endsWith('.log'));
+  expect(logFiles.length).toBeGreaterThan(0);
+  const logContent = logFiles.map(file => fs.readFileSync(path.join(outputDir, file), 'utf8')).join('\n');
+  expect(logContent).toContain('[SapotoAgentRunOverlay] heartbeat reason=activate');
+  expect(logContent).toContain('authorized=true owned=true hostCount=1 visible=true');
+  expect(logContent).toContain('cursorVisible=true cursorNode=true');
+  expect(logContent).toContain('captureHidden=false currentTab=true');
+});
+
 test('agent-run overlay reinstall keeps one host and one idle cursor visual', async ({ cdpServer, startClient }) => {
   const browserContext = await cdpServer.start();
   const page = browserContext.pages()[0];
