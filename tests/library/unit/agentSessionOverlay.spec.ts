@@ -119,6 +119,7 @@ it('agent-run overlay restore probes, reinstalls, and logs watchdog repairs', ()
   expect(src).toContain('private async _agentRunOverlayHealth');
   expect(src).toContain("this._maybeLogAgentRunOverlayHeartbeat(reason, before)");
   expect(src).toContain("this._logAgentRunOverlayDiagnostic('heartbeat'");
+  expect(src).toContain("(!this._isAgentSessionOverlayCursorVisible() || (health.cursorNode === true && health.cursorVisible === true))");
   expect(src).toContain('await this.page.evaluate(this._agentSessionOverlayScript)');
   expect(src).toContain("this._logAgentRunOverlayDiagnostic('repair'");
   expect(src).toContain("this._logAgentRunOverlayDiagnostic('unhealthy'");

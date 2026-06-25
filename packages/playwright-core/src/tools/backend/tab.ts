@@ -475,8 +475,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       health.owned === true &&
       health.hostCount === 1 &&
       health.visible === true &&
-      health.cursorNode === true &&
-      health.cursorVisible === true;
+      (!this._isAgentSessionOverlayCursorVisible() || (health.cursorNode === true && health.cursorVisible === true));
   }
 
   private async _agentRunOverlayHealth(): Promise<AgentRunOverlayHealth> {
