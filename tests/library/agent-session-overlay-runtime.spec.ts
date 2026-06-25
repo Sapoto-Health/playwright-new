@@ -310,12 +310,20 @@ it('agent-session overlay health probe is token gated and reports owned host sta
       owned: true,
       hostCount: 0,
       visible: false,
+      display: 'none',
+      zIndex: null,
+      cursorVisible: false,
+      cursorNode: false,
     },
     valid: {
       authorized: true,
       owned: true,
       hostCount: 1,
       visible: true,
+      display: 'block',
+      zIndex: '2147483647',
+      cursorVisible: true,
+      cursorNode: true,
     },
   });
 });

@@ -92,10 +92,15 @@ type AgentRunOverlayHealth = {
   owned?: boolean;
   hostCount?: number;
   visible?: boolean;
+  display?: string | null;
+  zIndex?: string | null;
+  cursorVisible?: boolean;
+  cursorNode?: boolean;
   error?: string;
 };
 
 const AGENT_RUN_OVERLAY_WATCHDOG_INTERVAL_MS = 1500;
+const AGENT_RUN_OVERLAY_HEARTBEAT_INTERVAL_MS = 10_000;
 
 
 export type TabHeader = {
@@ -132,6 +137,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
   private _agentSessionOverlayCursorPoint: { x: number, y: number } | undefined;
   private _agentRunOverlayWatchdogTimer: ReturnType<typeof setInterval> | undefined;
   private _lastAgentRunOverlayDiagnosticSignature: string | undefined;
+  private _lastAgentRunOverlayHeartbeatAt = 0;
   private _agentRunOverlayCaptureHidden = false;
   readonly actionTimeoutOptions: { timeout?: number; };
   readonly navigationTimeoutOptions: { timeout?: number; };
@@ -435,8 +441,10 @@ export class Tab extends EventEmitter<TabEventsInterface> {
       return false;
 
     const before = await this._agentRunOverlayHealth();
-    if (this._isAgentRunOverlayHealthy(before))
+    if (this._isAgentRunOverlayHealthy(before)) {
+      this._maybeLogAgentRunOverlayHeartbeat(reason, before);
       return false;
+    }
 
     this._logAgentRunOverlayDiagnostic('unhealthy', reason, before);
     try {
@@ -451,6 +459,7 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     const after = await this._agentRunOverlayHealth();
     if (this._isAgentRunOverlayHealthy(after)) {
       this._logAgentRunOverlayDiagnostic('repair', reason, after);
+      this._maybeLogAgentRunOverlayHeartbeat(reason, after);
       return true;
     }
     this._logAgentRunOverlayDiagnostic('repair_failed', reason, after);
@@ -461,7 +470,9 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     return health.authorized === true &&
       health.owned === true &&
       health.hostCount === 1 &&
-      health.visible === true;
+      health.visible === true &&
+      health.cursorNode === true &&
+      health.cursorVisible === true;
   }
 
   private async _agentRunOverlayHealth(): Promise<AgentRunOverlayHealth> {
@@ -502,14 +513,22 @@ export class Tab extends EventEmitter<TabEventsInterface> {
     }
   }
 
-  private _logAgentRunOverlayDiagnostic(kind: 'unhealthy' | 'repair' | 'repair_failed', reason: AgentRunOverlayRestoreReason, health: AgentRunOverlayHealth) {
+  private _maybeLogAgentRunOverlayHeartbeat(reason: AgentRunOverlayRestoreReason, health: AgentRunOverlayHealth) {
+    const now = Date.now();
+    if (now - this._lastAgentRunOverlayHeartbeatAt < AGENT_RUN_OVERLAY_HEARTBEAT_INTERVAL_MS)
+      return;
+    this._lastAgentRunOverlayHeartbeatAt = now;
+    this._logAgentRunOverlayDiagnostic('heartbeat', reason, health);
+  }
+
+  private _logAgentRunOverlayDiagnostic(kind: 'heartbeat' | 'unhealthy' | 'repair' | 'repair_failed', reason: AgentRunOverlayRestoreReason, health: AgentRunOverlayHealth) {
     const signature = `${kind}:${reason}:${health.authorized}:${health.owned}:${health.hostCount}:${health.visible}:${health.error ?? ''}`;
     if (kind === 'unhealthy' && this._lastAgentRunOverlayDiagnosticSignature === signature)
       return;
     this._lastAgentRunOverlayDiagnosticSignature = kind === 'repair' ? undefined : signature;
-    const text = `[SapotoAgentRunOverlay] ${kind} reason=${reason} authorized=${health.authorized === true} owned=${health.owned === true} hostCount=${health.hostCount ?? 'unknown'} visible=${health.visible === true}${health.error ? ` error=${health.error}` : ''}`;
+    const text = `[SapotoAgentRunOverlay] ${kind} reason=${reason} authorized=${health.authorized === true} owned=${health.owned === true} hostCount=${health.hostCount ?? 'unknown'} visible=${health.visible === true} display=${health.display ?? 'unknown'} zIndex=${health.zIndex ?? 'unknown'} cursorVisible=${health.cursorVisible === true} cursorNode=${health.cursorNode === true} captureHidden=${this._agentRunOverlayCaptureHidden} currentTab=${this.isCurrentTab()}${health.error ? ` error=${health.error}` : ''}`;
     this._handleConsoleMessage({
-      type: kind === 'repair' ? 'info' : 'warning',
+      type: kind === 'repair' || kind === 'heartbeat' ? 'info' : 'warning',
       timestamp: Date.now(),
       text,
       toString: () => text,

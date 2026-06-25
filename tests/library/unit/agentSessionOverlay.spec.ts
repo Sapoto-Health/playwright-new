@@ -49,7 +49,16 @@ it('agent-session overlay exposes a token-gated health probe for watchdog restor
   expect(src).toContain('if (!isAuthorized(token))');
   expect(src).toContain('owned: true');
   expect(src).toContain('hostCount: document.querySelectorAll(HOST_TAG).length');
-  expect(src).toContain("visible: host ? getComputedStyle(host).display !== 'none' : false");
+  expect(src).toContain("display: 'none'");
+  expect(src).toContain('const hostDisplay = host ? getComputedStyle(host).display : \'none\';');
+  expect(src).toContain('const cursorDisplay = cursor ? getComputedStyle(cursor).display : \'none\';');
+  expect(src).toContain('const cursorOpacity = cursor ? getComputedStyle(cursor).opacity : \'0\';');
+  expect(src).toContain("const cursorIsVisible = !!cursor && CURSOR_VISIBLE && hostDisplay !== 'none' && cursorDisplay !== 'none' && cursorOpacity !== '0';");
+  expect(src).toContain('visible: hostDisplay !== \'none\'');
+  expect(src).toContain('display: hostDisplay');
+  expect(src).toContain('zIndex: host ? getComputedStyle(host).zIndex : null');
+  expect(src).toContain('cursorVisible: cursorIsVisible');
+  expect(src).toContain('cursorNode: !!cursor');
 });
 
 it('agent-session overlay host dispatch avoids page-realm reflective built-ins on the control-token path', () => {
@@ -104,11 +113,16 @@ it('agent-run overlay restore probes, reinstalls, and logs watchdog repairs', ()
 
   expect(src).toContain("type AgentRunOverlayRestoreReason = 'activate' | 'navigation' | 'watchdog' | 'capture'");
   expect(src).toContain('private _agentRunOverlayWatchdogTimer');
+  expect(src).toContain('private _lastAgentRunOverlayHeartbeatAt');
   expect(src).toContain('private async _ensureAgentRunOverlayInstalled');
   expect(src).toContain('private async _agentRunOverlayHealth');
+  expect(src).toContain("this._maybeLogAgentRunOverlayHeartbeat(reason, before)");
+  expect(src).toContain("this._logAgentRunOverlayDiagnostic('heartbeat'");
   expect(src).toContain('await this.page.evaluate(this._agentSessionOverlayScript)');
   expect(src).toContain("this._logAgentRunOverlayDiagnostic('repair'");
   expect(src).toContain("this._logAgentRunOverlayDiagnostic('unhealthy'");
+  expect(src).toContain('cursorVisible=${health.cursorVisible === true}');
+  expect(src).toContain('captureHidden=${this._agentRunOverlayCaptureHidden}');
   expect(src).toContain('async hideAgentSessionOverlayForCapture()');
   expect(src).toContain('this._stopAgentRunOverlayWatchdog()');
 });
