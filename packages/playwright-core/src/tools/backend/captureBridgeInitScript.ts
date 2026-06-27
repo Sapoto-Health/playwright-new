@@ -238,11 +238,19 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
   const __sapotoWindowOpenInitiallyArmed = ${activeWindowOpenCapture ? 'true' : 'false'};
   const __sapotoInstallPrintBridge = ${installPrintBridge ? 'true' : 'false'};
   const __sapotoInstallWindowOpenBridge = ${windowOpenCaptureMode !== 'off' ? 'true' : 'false'};
+  const __sapotoPrintBridgeAlreadyInstalled = (() => {
+    try {
+      const source = Function.prototype.toString.call(window.print);
+      return source.includes('_emitPrintMarker') && source.includes('_c3Deferred');
+    } catch (_) {
+      return false;
+    }
+  })();
 
   // ============================================================
   // C3 — Deferred window.print() + Path D srcdoc-iframe bridge
   // ============================================================
-  if (__sapotoInstallPrintBridge) try {
+  if (__sapotoInstallPrintBridge && !__sapotoPrintBridgeAlreadyInstalled) try {
     const DEFERRED_TIMEOUT_MS = 2000;
     const deferred = function() {
       try { console.debug('[DeferredPrint] window.print() called — deferring for ' + DEFERRED_TIMEOUT_MS + 'ms at ' + sanitizeUrl(window.location.href)); } catch (_) {}
@@ -305,7 +313,7 @@ export function buildCaptureBridgeInitScript(options: CaptureBridgeOptions): str
   // deferred handler is left referenced via _c3Deferred so a
   // no-electronAPI page still gets the deferred-print suppression
   // behaviour via the same codepath.
-  if (__sapotoInstallPrintBridge) try {
+  if (__sapotoInstallPrintBridge && !__sapotoPrintBridgeAlreadyInstalled) try {
     const _c3Deferred = window.print;
     let _lastPrintTime = 0;
     const _emitPrintMarker = function() {

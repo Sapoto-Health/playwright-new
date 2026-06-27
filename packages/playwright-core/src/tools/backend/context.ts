@@ -168,6 +168,7 @@ export class Context {
   private _runningToolName: string | undefined;
   private _pendingUnhandledRejections: unknown[] = [];
   private _unhandledRejectionListeners = new Set<(reason: unknown) => void>();
+  private _captureBridgeScript: string | undefined;
   private _onUnhandledRejection = (reason: unknown) => {
     this._pendingUnhandledRejections.push(reason);
     for (const listener of this._unhandledRejectionListeners)
@@ -235,6 +236,7 @@ export class Context {
     const tab = this._tabs[index];
     if (!tab)
       throw new Error(`Tab ${index} not found`);
+    await this._installCaptureBridgeOnPageFrames(tab.page);
     if (options?.activate)
       await tab.page.bringToFront();
     this._currentTab = tab;
@@ -253,6 +255,7 @@ export class Context {
       await this.newTab();
     if (crashed)
       this._currentTab!.logErrorMessage('Page crashed and was reset to about:blank.');
+    await this._installCaptureBridgeOnPageFrames(this._currentTab!.page);
     await this.syncAgentRunOverlayVisibility();
     return this._currentTab!;
   }
@@ -308,6 +311,7 @@ export class Context {
   }
 
   private _onPageCreated(page: playwrightTypes.Page) {
+    this._wireCaptureBridgeFrameInstaller(page);
     // Sapoto Tracer #1154 (Unit I): hide background-target capture tabs from
     // the agent-visible list. ADF's backgroundOpenBridge spawns a hidden CDP
     // target whose URL fragment contains `__sapoto_bg=V1:…`; that target is
@@ -352,6 +356,22 @@ export class Context {
     this.syncAgentRunOverlayVisibility().catch(e => debug('pw:tools:error')(e));
     this._showActionCursor(page);
     this._startPageVideo(page).catch(() => {});
+  }
+
+  private _wireCaptureBridgeFrameInstaller(page: playwrightTypes.Page) {
+    const captureBridgeScript = this._captureBridgeScript;
+    if (!captureBridgeScript)
+      return;
+    this._disposables.push(eventsHelper.addEventListener(page, 'frameattached', frame => {
+      frame.evaluate(captureBridgeScript).catch(() => {});
+    }));
+  }
+
+  private async _installCaptureBridgeOnPageFrames(page: playwrightTypes.Page) {
+    const captureBridgeScript = this._captureBridgeScript;
+    if (!captureBridgeScript)
+      return;
+    await Promise.allSettled(page.frames().map(frame => frame.evaluate(captureBridgeScript)));
   }
 
   private _showActionCursor(page: playwrightTypes.Page) {
@@ -476,12 +496,18 @@ export class Context {
     // page-detectable absence of the install).
     const windowOpenCaptureMode = this.config.windowOpenCaptureMode ?? (this.config.captureBridge ? 'active' : 'off');
     if (this.config.captureBridge || windowOpenCaptureMode !== 'off') {
+      const captureBridgeScript = buildCaptureBridgeInitScript({
+        captureBridge: !!this.config.captureBridge,
+        windowOpenCaptureMode,
+      });
+      this._captureBridgeScript = captureBridgeScript;
       this._disposables.push(await browserContext.addInitScript({
-        content: buildCaptureBridgeInitScript({
-          captureBridge: !!this.config.captureBridge,
-          windowOpenCaptureMode,
-        }),
+        content: captureBridgeScript,
       }));
+      const results = await Promise.allSettled(browserContext.pages().map(page => this._installCaptureBridgeOnPageFrames(page)));
+      const failures = results.filter(result => result.status === 'rejected');
+      if (failures.length)
+        debug('pw:mcp:sapoto')(`capture bridge existing-page install incomplete: failures=${failures.length}`);
     }
 
     for (const page of browserContext.pages())

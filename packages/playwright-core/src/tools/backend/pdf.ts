@@ -55,8 +55,8 @@ const pdf = defineTabTool({
 // Calls `window.print()` on the current page. The Unit I capture-bridge init
 // script wraps the global `window.print` to route through the embedder's
 // `electronAPI.requestPrintCapture` bridge (or up the parent frame chain).
-// When no bridge is present the C3 IIFE silently suppresses the call after
-// a 2s deferral — better than a blocking native print dialog.
+// If the bridge is not installed on the current page, fail fast rather than
+// opening Chromium's native print preview.
 //
 // Focused affordance: agents need exactly one knob ("trigger print") for
 // portals that only expose statement downloads behind the browser's Print
@@ -75,13 +75,15 @@ const triggerPrint = defineTabTool({
   },
 
   handle: async (tab, _params, response) => {
-    // No bridge probe — the Unit I init script's C3 / C4 handlers route
-    // window.print() correctly whether or not electronAPI is present. From
-    // the tool's perspective we just need to invoke the global; the bridge
-    // (or its absence) is transparent.
-    await tab.page.evaluate(() => {
+    const result = await tab.page.evaluate(() => {
+      const source = Function.prototype.toString.call(window.print);
+      if (!source.includes('_emitPrintMarker') || !source.includes('_c3Deferred'))
+        return { ok: false };
       window.print();
+      return { ok: true };
     });
+    if (!result.ok)
+      throw new Error('Sapoto capture bridge is not installed on the current page; refusing to open native print.');
     response.addCode(`await page.evaluate(() => window.print());`);
     response.addTextResult('window.print() triggered on current page.');
   },
